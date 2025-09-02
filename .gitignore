@@ -1,0 +1,26 @@
+# Node modules
+/frontend/node_modules/
+/backend/node_modules/
+
+# Next.js build
+/frontend/.next/
+
+# Environment files
+.env*
+/backend/backend/.env
+/frontend/.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+
+# Django specific
+/backend/backend/accounts/migrations/__pycache__/
+/backend/backend/accounts/api/__pycache__/
+/backend/backend/backend/__pycache__/
+/backend/backend/__pycache__/
