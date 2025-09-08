@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ChatSidebar from "../../components/ui/chat-sidebar";
 import ChatWindow from "../../components/ui/chat-window";
 import Navbar from "../../components/ui/chat-navbar";
@@ -8,6 +8,18 @@ import Navbar from "../../components/ui/chat-navbar";
 export default function ChatPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [hasPrompt, setHasPrompt] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const startNewChat = () => {
     console.log("Starting new chat");
@@ -19,7 +31,7 @@ export default function ChatPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#ffffff]">
+    <main className="min-h-screen bg-white">
       <div className="flex flex-col h-screen">
         <Navbar
           isSidebarOpen={isSidebarOpen}
@@ -43,15 +55,17 @@ export default function ChatPage() {
             />
           </div>
 
-          {/* Chat Window Container with proper spacing */}
+          {/* Chat Window Container - UPDATED WITH MARGIN */}
           <div className={`
             flex-1
             transition-all duration-300 
-            p-4
-            ${isSidebarOpen ? 'sm:ml-0' : 'sm:ml-20'}
+            p-4 md:p-5
+            ${isSidebarOpen && isMobile ? 'opacity-30' : 'opacity-100'}
             h-full
+            w-full
+            ${!isSidebarOpen && !isMobile ? 'md:ml-20' : 'md:ml-0'}
           `}>
-            <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-6 w-full h-full flex flex-col">
+            <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl p-4 md:p-6 w-full h-full flex flex-col">
               <ChatWindow 
                 onFirstMessage={() => setHasPrompt(true)}
                 isSidebarOpen={isSidebarOpen}
