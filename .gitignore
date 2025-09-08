@@ -24,3 +24,4 @@ venv/
 /backend/backend/accounts/api/__pycache__/
 /backend/backend/backend/__pycache__/
 /backend/backend/__pycache__/
+/backend/backend/settings.py

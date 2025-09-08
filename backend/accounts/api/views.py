@@ -146,17 +146,23 @@ def upload_document(request):
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
 
-    pdf_file = request.FILES.get("file")
-    if not pdf_file:
+    files = request.FILES.getlist("file")
+    if not files:
         return JsonResponse({"error": "No PDF file uploaded"}, status=400)
 
-    file_path = default_storage.save(pdf_file.name, pdf_file)
-    full_path = os.path.join(settings.MEDIA_ROOT, file_path)
+    all_chunks = []
 
-    loader = PyPDFLoader(full_path)
-    documents = loader.load()
-    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
-    chunks = splitter.split_documents(documents)
+    for pdf_file in files:
+        file_path = default_storage.save(pdf_file.name, pdf_file)
+        full_path = os.path.join(settings.MEDIA_ROOT, file_path)
+
+
+        loader = PyPDFLoader(full_path)
+        documents = loader.load()
+        splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+        chunks = splitter.split_documents(documents)
+        print(f"📄 {pdf_file.name} → {len(chunks)} chunks")
+        all_chunks.extend(chunks)
 
     embeddings = CohereEmbeddings(
         model="embed-english-v3.0",
@@ -164,13 +170,13 @@ def upload_document(request):
     )
 
     PGVector.from_documents(
-        documents=chunks,
+        documents=all_chunks,
         embedding=embeddings,
         connection_string=CONNECTION_STRING,
         collection_name=COLLECTION_NAME,
-        pre_delete_collection=True
+        pre_delete_collection=False
     )
-
+    print(all_chunks)
     return JsonResponse({"message": " PDF processed and embeddings stored."})
 
 
