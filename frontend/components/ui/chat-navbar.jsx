@@ -5,6 +5,8 @@ import { ChevronRightIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+
+
 export default function Navbar({ 
   hasUserSentPrompt, 
   onNewChat,
