@@ -155,3 +155,4 @@ EMAIL_PORT = 587
 EMAIL_HOST_USER = "maahammadalyy@gmail.com"
 EMAIL_HOST_PASSWORD = "honhysbworqknsnb"   # App password
 DEFAULT_FROM_EMAIL = "no-reply@yourdomain.com"
+#settings.py file
