@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import Image from "next/image";
+import axios from "axios";
+
 
 export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
   const [messages, setMessages] = useState([]);
@@ -11,7 +13,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
   const [statusMsg, setStatusMsg] = useState("");
   const [hasFirstMessage, setHasFirstMessage] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("deepseek-chat");
+  const [selectedModel, setSelectedModel] = useState("gemini-pro");
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [showModelDialog, setShowModelDialog] = useState(false);
   const messagesEndRef = useRef(null);
@@ -99,28 +101,14 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     }
 
     try {
-      const formData = new FormData();
-      formData.append('messages', JSON.stringify([...messages, userMsg]));
-      formData.append('model', selectedModel);
+    const res = await axios.post("http://localhost:8000/chat/", {
+      text: userMsg.text,
+    });
+    const aiResponse = res.data.response;
 
-      attachedFiles.forEach(file => {
-        formData.append('files', file);
-      });
-
-      const res = await fetch("http://127.0.0.1:8000/api/chat/", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data?.reply) {
-        const assistantMsg = { id: Date.now() + 1, role: "assistant", text: data.reply };
-        setMessages((m) => [...m, assistantMsg]);
-      } else {
-        setStatusMsg(data?.error || "No response from server. Try again.");
-      }
-    } catch (err) {
+    const assistantMsg = { id: Date.now() + 1, role: "assistant", text: aiResponse };
+    setMessages((m) => [...m, assistantMsg]);
+  } catch (err) {
       console.error("Chat error:", err);
       setStatusMsg("Could not reach server. Please try again.");
     } finally {
@@ -156,13 +144,35 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     fileInputRef.current?.click();
   };
 
-  const handleFileSelect = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length > 0) {
-      setAttachedFiles(prev => [...prev, ...files]);
+  const handleFileUpload = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const res = await axios.post("http://localhost:8000/upload_document/", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    alert(res.data.message || "File uploaded successfully!");
+  } catch (err) {
+    console.error("Upload error:", err);
+    alert("Error uploading file.");
+  }
+};
+
+ 
+const handleFileSelect = async (e) => {
+  const files = Array.from(e.target.files);
+  if (files.length > 0) {
+    setAttachedFiles(prev => [...prev, ...files]);
+    // Immediately upload all files
+    for (const file of files) {
+      await handleFileUpload(file);
     }
-    e.target.value = '';
-  };
+  }
+  e.target.value = ''; // reset input
+};
+
+
 
   const removeFile = (index) => {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
