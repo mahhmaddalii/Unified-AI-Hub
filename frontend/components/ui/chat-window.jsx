@@ -418,7 +418,7 @@ return (
         <button
           type="button"
           onClick={() => setShowModelDialog(true)}
-          className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-700 border border-gray-200 rounded-full hover:bg-gray-50 transition-colors"
           title="Change AI model"
         >
           <span className="text-sm">{getCurrentModel()?.icon}</span>
