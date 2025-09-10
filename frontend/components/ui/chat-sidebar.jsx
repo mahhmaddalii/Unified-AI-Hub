@@ -20,74 +20,81 @@ export default function ChatSidebar({ isOpen, onToggle }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settingsCategory, setSettingsCategory] = useState("general");
+const [isLoading, setIsLoading] = useState(true); // Set to true initially for first load
+const [loadingChats, setLoadingChats] = useState(false);
 
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+// Simulate initial loading
+useEffect(() => {
+  const timer = setTimeout(() => {
+    setIsLoading(false);
+  }, 1000); // Simulate 1 second initial load
+  return () => clearTimeout(timer);
+}, []);
 
-  const addChat = () => {
-    const newChat = `New Chat ${chats.length + 1}`;
-    setChats([...chats, newChat]);
-    if (isMobile) onToggle(false);
-  };
+const addChat = async () => {
+  setLoadingChats(true);
+  // Simulate API call delay
+  await new Promise(resolve => setTimeout(resolve, 800));
+  
+  const newChat = `New Chat ${chats.length + 1}`;
+  setChats([...chats, newChat]);
+  setLoadingChats(false);
+  
+  if (isMobile) onToggle(false);
+};
 
-  const deleteChat = (index) => {
-    setChats(chats.filter((_, i) => i !== index));
-  };
-
-  const filteredChats = chats.filter(chat => 
-    chat.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
+const deleteChat = async (index) => {
+  setLoadingChats(true);
+  // Simulate API call delay
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  setChats(chats.filter((_, i) => i !== index));
+  setLoadingChats(false);
+};
   
   return (
-    <>
-      {/* Icon Bar - only shown when sidebar is closed on desktop */}
-      {!isOpen && !isMobile && (
-        <div className="hidden sm:flex flex-col items-center bg-white rounded-xl shadow-sm p-2 w-14 border border-gray-200 fixed left-6 top-1/2 transform -translate-y-1/2 z-10">
-          <div className="flex flex-col items-center gap-2">
-            <button
-              onClick={addChat}
-              className="p-1.5 rounded-lg hover:bg-gray-100 transition"
-              title="New Chat"
-            >
-              <PlusIcon className="w-5 h-5 text-gray-700" />
-            </button>
-            
-            <button
-              onClick={() => { setActiveTab("chats"); onToggle(true); }}
-              className="p-1.5 rounded-lg hover:bg-gray-100 transition"
-              title="Chats"
-            >
-              <ChatBubbleOvalLeftIcon className="w-5 h-5 text-gray-700" />
-            </button>
+    <>{/* Icon Bar - only shown when sidebar is closed on desktop */}
+{!isOpen && !isMobile && (
+  <div className="hidden sm:flex flex-col items-center bg-white rounded-xl shadow-sm p-2 w-14 border border-gray-200 fixed left-6 top-1/2 transform -translate-y-1/2 z-10">
+    <div className="flex flex-col items-center gap-2">
+      <button
+        onClick={addChat}
+        className="p-1.5 rounded-lg hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        title="New Chat"
+        disabled={loadingChats}
+      >
+        <PlusIcon className="w-5 h-5 text-gray-700" />
+      </button>
+      
+      <button
+        onClick={() => { setActiveTab("chats"); onToggle(true); }}
+        className="p-1.5 rounded-lg hover:bg-gray-100 transition"
+        title="Chats"
+      >
+        <ChatBubbleOvalLeftIcon className="w-5 h-5 text-gray-700" />
+      </button>
 
-            <button
-              onClick={() => { setActiveTab("agents"); onToggle(true); }}
-              className="p-1.5 rounded-lg hover:bg-gray-100 transition"
-              title="Agents"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-700">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z" />
-              </svg>
-            </button>
-          </div>
+      <button
+        onClick={() => { setActiveTab("agents"); onToggle(true); }}
+        className="p-1.5 rounded-lg hover:bg-gray-100 transition"
+        title="Agents"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-700">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3 m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z" />
+        </svg>
+      </button>
+    </div>
 
-          {/* Profile Button at Bottom of Icon Bar */}
-          <div className="mt-auto pt-4">
-            <button
-              onClick={() => { setActiveTab("profile"); onToggle(true); }}
-              className="p-1.5 rounded-lg hover:bg-gray-100 transition"
-              title="Profile"
-            >
-              <UserIcon className="w-5 h-5 text-gray-700" />
-            </button>
-          </div>
+    {/* Profile Button at Bottom of Icon Bar */}
+    <div className="mt-auto pt-4">
+      <button
+        onClick={() => { setActiveTab("profile"); onToggle(true); }}
+        className="p-1.5 rounded-lg hover:bg-gray-100 transition"
+        title="Profile"
+      >
+        <UserIcon className="w-5 h-5 text-gray-700" />
+      </button>
+    </div>
 
           {/* Collapse/Expand Button */}
           <button
@@ -208,44 +215,59 @@ export default function ChatSidebar({ isOpen, onToggle }) {
             </div>
 
             {/* Scrollable Content */}
-            <div className="flex-grow overflow-y-auto">
-              {activeTab === "chats" && (
-                <div className="space-y-2">
-                  <button
-                    onClick={addChat}
-                    className="w-full flex items-center gap-2 px-4 py-2.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors"
-                  >
-                    <PlusIcon className="w-5 h-5" />
-                    <span>New Chat</span>
-                  </button>
-                  
-                  {/* Search results or all chats */}
-                  <div className="space-y-1 mt-4">
-                    {(searchQuery ? filteredChats : chats).map((chat, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                      >
-                        <span className="text-gray-700 truncate">{chat}</span>
-                        <button
-                          onClick={() => deleteChat(index)}
-                          className="p-1 rounded-md hover:bg-gray-200 transition-colors"
-                        >
-                          <TrashIcon className="w-4 h-4 text-gray-500" />
-                        </button>
-                      </div>
-                    ))}
-                    
-                    {/* No results message */}
-                    {searchQuery && filteredChats.length === 0 && (
-                      <div className="text-center py-4 text-gray-500 text-sm">
-                        No chats found matching "{searchQuery}"
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              
+<div className="flex-grow overflow-y-auto">
+  {activeTab === "chats" && (
+    <div className="space-y-2">
+      {/* Always show the New Chat button, only disable it during loading */}
+      <button
+        onClick={addChat}
+        disabled={isLoading}
+        className="w-full flex items-center gap-2 px-4 py-2.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <PlusIcon className="w-5 h-5" />
+        <span>New Chat</span>
+      </button>
+      
+      {/* Search results or all chats */}
+      <div className="space-y-1 mt-4">
+        {isLoading ? (
+          // Show skeleton loaders only during initial loading
+          Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="flex items-center justify-between p-2 rounded-lg animate-pulse">
+              <div className="flex items-center space-x-3">
+                <div className="h-4 bg-gray-200 rounded w-24"></div>
+              </div>
+              <div className="h-4 w-4 bg-gray-200 rounded"></div>
+            </div>
+          ))
+        ) : (
+          // Show actual chats when not loading
+          (searchQuery ? filteredChats : chats).map((chat, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-100 transition-colors group"
+            >
+              <span className="text-gray-700 truncate">{chat}</span>
+              <button
+                onClick={() => deleteChat(index)}
+                className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-gray-200 transition-all duration-200"
+                disabled={isLoading}
+              >
+                <TrashIcon className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+          ))
+        )}
+        
+        {/* No results message */}
+        {searchQuery && filteredChats.length === 0 && !isLoading && (
+          <div className="text-center py-4 text-gray-500 text-sm">
+            No chats found matching "{searchQuery}"
+          </div>
+        )}
+      </div>
+    </div>
+  )}  
               {activeTab === "agents" && (
                 <div className="text-center py-8 text-gray-500">
                   <svg
