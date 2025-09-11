@@ -17,7 +17,7 @@ export default function ForgotPasswordForm() {
     setError("");
 
     try {
-      // FIXED: Changed from /forgot-password/ to /api/forgot-password/
+      
       const response = await fetch(`${API_URL}/api/forgot-password/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -29,7 +29,6 @@ export default function ForgotPasswordForm() {
       if (response.ok) {
         setMessage(data.message || "Password reset email has been sent to your inbox.");
       } else {
-        // Show the same message regardless of whether email exists (for security)
         setMessage("If this email exists, a reset link has been sent.");
       }
     } catch (error) {
