@@ -181,7 +181,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
   return (
     <div className="flex flex-col h-full w-full bg-white">
     {/* Messages Container */}
-    <div className="flex-1 overflow-y-auto px-2 py-3 md:px-4">
+    <div className="flex-1 overflow-y-auto px-2 py-1 md:px-4">
       {!hasFirstMessage ? (
         // Welcome screen with prompt cards - UPDATED
         <div className="flex flex-col items-center justify-start h-full pt-8 pb-4 px-2 overflow-y-auto">
