@@ -59,13 +59,13 @@ export default function ChatPage() {
           <div className={`
             flex-1
             transition-all duration-300 
-            p-2 md:p-5
+            p-4 md:p-5
             ${isSidebarOpen && isMobile ? 'opacity-30' : 'opacity-100'}
             h-full
             w-full
             ${!isSidebarOpen && !isMobile ? 'md:ml-20' : 'md:ml-0'}
           `}>
-            <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl p-1 md:p-6 w-full h-full flex flex-col">
+            <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl p-1 md:p-2 w-full h-full flex flex-col overflow-hidden">
               <ChatWindow 
                 onFirstMessage={() => setHasPrompt(true)}
                 isSidebarOpen={isSidebarOpen}

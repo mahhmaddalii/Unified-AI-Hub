@@ -5,6 +5,9 @@ export const metadata = {
   // other metadata (title, description, etc.)
   title: 'Generative AI Hub',
   description: 'Unified AI Platform',
+   icons: {
+    icon: '/logo.png', // This is all you need
+  }
 }
 
 export const viewport = {

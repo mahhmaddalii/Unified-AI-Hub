@@ -183,44 +183,44 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     {/* Messages Container */}
     <div className="flex-1 overflow-y-auto px-2 py-1 md:px-4">
       {!hasFirstMessage ? (
-        // Welcome screen with prompt cards - UPDATED
-        <div className="flex flex-col items-center justify-start h-full pt-8 pb-4 px-2 overflow-y-auto">
-          {/* Centered Logo and Title */}
-          <div className="text-center mb-6 max-w-lg w-full px-2">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-full mb-4 shadow-lg mx-auto">
-              <div className="relative w-8 h-8 flex items-center justify-center">
-                  <Image 
-                    src="/logo.png" 
-                    alt="App Logo" 
-                    fill
-                    className="object-contain drop-shadow-sm"
-                    sizes="32px"
-                  />
-                </div>
-              </div>
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-2">How can I help you today?</h2>
-              <p className="text-xs sm:text-sm text-gray-500">Choose a prompt or type your own message to get started</p>
-            </div>
-            
-            {/* Prompt cards grid - FULLY RESPONSIVE */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 w-full max-w-2xl mb-4 sm:mb-6 px-2 sm:px-4">
-              {promptCards.map((card, index) => (
-                <div
-                  key={index}
-                  className="bg-white border border-gray-200 rounded-lg p-2.5 sm:p-3 cursor-pointer hover:border-purple-300 transition-colors text-left"
-                  onClick={() => handlePromptClick(card.prompt)}
-                >
-                  <div className="flex items-start gap-2">
-                    <span className="text-base sm:text-lg flex-shrink-0">{card.icon}</span>
-                    <div className="text-left min-w-0 flex-1">
-                      <h3 className="font-medium text-gray-800 mb-1 text-xs sm:text-sm">{card.title}</h3>
-                      <p className="text-xs text-gray-600 leading-relaxed">{card.prompt}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+        // Welcome screen with prompt cards - CENTERED
+<div className="flex flex-col items-center justify-center h-full px-2 overflow-y-auto">
+  {/* Centered Logo and Title */}
+  <div className="text-center mb-6 max-w-lg w-full px-2">
+    <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-full mb-4 shadow-lg mx-auto">
+      <div className="relative w-8 h-8 flex items-center justify-center">
+        <Image 
+          src="/logo.png" 
+          alt="App Logo" 
+          fill
+          className="object-contain drop-shadow-sm"
+          sizes="32px"
+        />
+      </div>
+    </div>
+    <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-2">How can I help you today?</h2>
+    <p className="text-xs sm:text-sm text-gray-500">Choose a prompt or type your own message to get started</p>
+  </div>
+  
+  {/* Prompt cards grid - FULLY RESPONSIVE */}
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 w-full max-w-2xl px-2 sm:px-4">
+    {promptCards.map((card, index) => (
+      <div
+        key={index}
+        className="bg-white border border-gray-200 rounded-lg p-2.5 sm:p-3 cursor-pointer hover:border-purple-300 transition-colors text-left"
+        onClick={() => handlePromptClick(card.prompt)}
+      >
+        <div className="flex items-start gap-2">
+          <span className="text-base sm:text-lg flex-shrink-0">{card.icon}</span>
+          <div className="text-left min-w-0 flex-1">
+            <h3 className="font-medium text-gray-800 mb-1 text-xs sm:text-sm">{card.title}</h3>
+            <p className="text-xs text-gray-600 leading-relaxed">{card.prompt}</p>
           </div>
+        </div>
+      </div>
+    ))}
+  </div>
+</div>
         ) : (
           // Chat messages - RESPONSIVE
           <div className="space-y-3 max-w-3xl mx-auto">
@@ -317,7 +317,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
       )}
 
       {/* Input area - RESPONSIVE */}
-      <div className="bg-white px-3 sm:px-4 py-2 sm:py-3 relative">
+<div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative">
         <div className={`max-w-3xl mx-auto rounded-xl p-2 sm:p-2 transition-all duration-200 ${
           input ? 'ring-1 sm:ring-2 ring-purple-300' : ''
         } ${input ? 'bg-purple-50' : 'bg-gray-100'}`}>
