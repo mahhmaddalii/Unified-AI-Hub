@@ -3,9 +3,7 @@
 import Image from "next/image";
 import { ChevronRightIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-
-
+import { useRouter, usePathname } from "next/navigation";
 
 export default function Navbar({ 
   hasUserSentPrompt, 
@@ -15,6 +13,7 @@ export default function Navbar({
 }) {
   const [isMobile, setIsMobile] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const handleResize = () => {
@@ -29,27 +28,36 @@ export default function Navbar({
     router.push("/pricing");
   };
 
+  // Check if current page is home or pricing
+  const isHomeOrPricing = pathname === "/" || pathname === "/pricing";
+
   return (
-    <div className="w-full px-4 sm:px-6 py-4">
+    <div className={`w-full px-4 sm:px-6 py-1 ${isHomeOrPricing ? "" : "bg-white"}`}>
       <div className="flex justify-center">
-        <div className="bg-white shadow-xl w-full max-w-md sm:max-w-2xl md:max-w-4xl lg:max-w-7xl border-x border-b border-gray-200 rounded-b-3xl">
+        <div className={`w-full max-w-md sm:max-w-2xl md:max-w-4xl lg:max-w-7xl ${
+          isHomeOrPricing 
+            ? "bg-white shadow-xl border-x border-b border-gray-200 rounded-b-3xl" 
+            : "bg-white"
+        }`}>
           <div className="flex items-center justify-between py-3 px-4 sm:px-6 relative">
             
             {/* Left Section with Logo + Toggle Button */}
-            <div className="flex items-center gap-3">
-              {/* Toggle Button - Only visible on mobile */}
-              <div className="md:hidden">
-                <button
-                  onClick={onToggleSidebar}
-                  className="p-2 rounded-lg hover:bg-gray-100 transition"
-                >
-                  <ChevronRightIcon
-                    className={`w-5 h-5 text-gray-700 transition-all duration-300 ${
-                      isSidebarOpen ? "transform rotate-180" : ""
-                    }`}
-                  />
-                </button>
-              </div>
+            <div className="flex items-center gap-2">
+              {/* Toggle Button - Only visible on mobile AND not on home/pricing pages */}
+              {!isHomeOrPricing && (
+                <div className="md:hidden">
+                  <button
+                    onClick={onToggleSidebar}
+                    className="p-1 rounded-lg hover:bg-gray-100 transition"
+                  >
+                    <ChevronRightIcon
+                      className={`w-5 h-5 text-gray-700 transition-all duration-300 ${
+                        isSidebarOpen ? "transform rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
 
               {/* Logo */}
               <Image
@@ -57,7 +65,7 @@ export default function Navbar({
                 alt="Logo"
                 width={100}
                 height={100}
-                className="w-12 h-12 object-contain"
+                className="w-10 h-10 object-contain"
                 priority
               />
             </div>

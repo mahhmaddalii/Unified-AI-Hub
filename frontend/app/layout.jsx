@@ -1,10 +1,19 @@
 import '../styles/global.css';
 
+// In your layout.js or page.js
 export const metadata = {
+  // other metadata (title, description, etc.)
   title: 'Generative AI Hub',
   description: 'Unified AI Platform',
-  viewport: 'width=device-width, initial-scale=1.0',
-};
+   icons: {
+    icon: '/logo.png', // This is all you need
+  }
+}
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+}
 
 export default function RootLayout({ children }) {
   return (

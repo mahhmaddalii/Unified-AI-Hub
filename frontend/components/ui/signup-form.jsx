@@ -127,8 +127,8 @@ export default function SignupForm() {
       <p className="text-gray-700 mb-6">Create your new account</p>
 
       {/* First + Last Name */}
-      <div className="flex gap-4 mb-4">
-        <div className="w-1/2 text-left">
+      <div className="flex gap-4 mb-4 animate-fade-in delay-200">
+          <div className="w-1/2 text-left">
           <label htmlFor="firstName" className="block text-sm text-gray-900 mb-1">First Name:</label>
           <input
             id="firstName"
@@ -138,8 +138,8 @@ export default function SignupForm() {
             value={formData.firstName}
             onChange={handleChange}
             required
-            className="w-full px-4 py-2 text-sm bg-gray-100 rounded-xl outline-none focus:bg-gray-200"
-          />
+            className="w-full px-4 py-2 text-sm bg-gray-100 rounded-xl outline-none focus:bg-gray-200 transition-all duration-300"
+            />
         </div>
         <div className="w-1/2 text-left">
           <label htmlFor="lastName" className="block text-sm text-gray-900 mb-1">Last Name:</label>
@@ -151,14 +151,14 @@ export default function SignupForm() {
             value={formData.lastName}
             onChange={handleChange}
             required
-            className="w-full px-4 py-2 text-sm bg-gray-100 rounded-xl outline-none focus:bg-gray-200"
-          />
+            className="w-full px-4 py-2 text-sm bg-gray-100 rounded-xl outline-none focus:bg-gray-200 transition-all duration-300"
+            />
         </div>
       </div>
 
       {/* Email */}
-      <div className="text-left mb-4">
-        <label htmlFor="email" className="block text-sm text-gray-900 mb-1">Email:</label>
+      <div className="text-left mb-4 animate-fade-in delay-300">
+          <label htmlFor="email" className="block text-sm text-gray-900 mb-1">Email:</label>
         <input
           id="email"
           name="email"
@@ -167,13 +167,13 @@ export default function SignupForm() {
           value={formData.email}
           onChange={handleChange}
           required
-          className="w-full px-5 py-3 text-sm text-gray-900 bg-gray-100 rounded-2xl outline-none focus:bg-gray-200"
-        />
+          className="w-full px-5 py-3 text-sm text-gray-900 bg-gray-100 rounded-2xl outline-none focus:bg-gray-200 transition-all duration-300"
+          />
       </div>
 
       {/* Password */}
-      <div className="text-left mb-4 relative">
-        <label htmlFor="password" className="block text-sm text-gray-900 mb-1">Password:</label>
+      <div className="text-left mb-4 relative animate-fade-in delay-400">
+          <label htmlFor="password" className="block text-sm text-gray-900 mb-1">Password:</label>
         <input
           id="password"
           name="password"
@@ -183,20 +183,20 @@ export default function SignupForm() {
           onChange={handleChange}
           required
           minLength={8}
-          className="w-full px-5 py-3 pr-12 text-sm text-gray-900 bg-gray-100 rounded-2xl outline-none focus:bg-gray-200"
-        />
+        className="w-full px-5 py-3 pr-12 text-sm text-gray-900 bg-gray-100 rounded-2xl outline-none focus:bg-gray-200 transition-all duration-300"
+          />
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}
-          className="absolute right-4 top-9 text-sm text-gray-500"
-        >
+        className="absolute right-4 top-9 text-sm text-gray-500 transition-colors duration-300 hover:text-gray-700"
+          >
           {showPassword ? "Hide" : "Show"}
         </button>
       </div>
 
       {/* Confirm Password (frontend-only validation) */}
-      <div className="text-left mb-4 relative">
-        <label htmlFor="confirmPassword" className="block text-sm text-gray-900 mb-1">Confirm Password:</label>
+      <div className="text-left mb-4 relative animate-fade-in delay-500">
+          <label htmlFor="confirmPassword" className="block text-sm text-gray-900 mb-1">Confirm Password:</label>
         <input
           id="confirmPassword"
           name="confirmPassword"
@@ -206,25 +206,25 @@ export default function SignupForm() {
           onChange={handleChange}
           required
           minLength={8}
-          className="w-full px-5 py-3 pr-12 text-sm text-gray-900 bg-gray-100 rounded-2xl outline-none focus:bg-gray-200"
-        />
+          className="w-full px-5 py-3 pr-12 text-sm text-gray-900 bg-gray-100 rounded-2xl outline-none focus:bg-gray-200 transition-all duration-300"
+          />
         <button
           type="button"
           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-          className="absolute right-4 top-9 text-sm text-gray-500"
-        >
+          className="absolute right-4 top-9 text-sm text-gray-500 transition-colors duration-300 hover:text-gray-700"
+          >
           {showConfirmPassword ? "Hide" : "Show"}
         </button>
 
         {errors.confirmPassword && (
-          <p className="text-red-600 text-sm mt-2">{errors.confirmPassword}</p>
+          <p className="text-red-600 text-sm mt-2 animate-fade-in">{errors.confirmPassword}</p>
         )}
       </div>
 
       {/* Success or Error Message */}
       {formMessage.text && (
         <p
-          className={`text-sm mb-4 ${
+          className={`text-sm mb-4 animate-fade-in ${
             formMessage.type === "error" ? "text-red-600" : "text-green-600"
           }`}
         >
@@ -236,14 +236,16 @@ export default function SignupForm() {
       <button
         type="submit"
         disabled={isLoading}
-        className="w-full py-3 text-white bg-purple-600 hover:bg-purple-700 rounded-2xl font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
-      >
+        className="w-full py-3 text-white bg-purple-600 hover:bg-purple-700 rounded-2xl font-bold transition-all duration-300 animate-fade-in delay-600"
+        >
         {isLoading ? "Processing..." : "Sign Up"}
       </button>
 
-      <p className="text-sm text-gray-900 mt-6">
-        Already have an account?{" "}
-        <Link href="/login" className="font-bold text-gray-700 hover:underline">Sign In</Link>
+     <p className="text-sm text-gray-900 mt-6 animate-fade-in delay-700">
+           Already have an account?{" "}
+        <Link href="/login" className="font-bold text-gray-700 hover:underline transition-colors duration-300">
+          Sign In
+        </Link>
       </p>
     </form>
   );

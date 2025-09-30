@@ -45,7 +45,7 @@ export default function ForgotPasswordForm() {
       <h3 className="text-4xl font-extrabold text-gray-900 mb-3">Forgot Password</h3>
       <p className="text-gray-700 mb-6">Enter your registered email</p>
 
-      <div className="text-left mb-4">
+      <div className="text-left mb-4 animate-fade-in delay-200">
         <label htmlFor="email" className="block text-sm text-gray-900 mb-1">
           Email
         </label>
@@ -64,18 +64,18 @@ export default function ForgotPasswordForm() {
       {/* Success or Error Messages */}
       {message && <p className="text-green-600 text-sm mb-4">{message}</p>}
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
-
+      <div className="w-full flex justify-center">
       <button
         type="submit"
         disabled={isLoading}
-        className="w-40 py-3 text-white bg-purple-600 hover:bg-purple-700 rounded-2xl font-bold transition mx-auto block disabled:opacity-50 disabled:cursor-not-allowed"
-      >
+      className="w-40 py-3 text-white bg-purple-600 hover:bg-purple-700 rounded-2xl font-bold transition-all duration-300 animate-fade-in delay-600"
+        >
         {isLoading ? "Sending..." : "Send Reset Link"}
       </button>
-
-      <p className="text-sm text-gray-900 mt-6">
+</div>
+      <p className="text-sm text-gray-900 mt-6 animate-fade-in delay-700">
         Move to login{" "}
-        <Link href="/login" className="font-bold text-gray-700 hover:underline">
+        <Link href="/login" className="font-bold text-gray-700 hover:underline transition-colors duration-300">
           Sign In
         </Link>
       </p>
