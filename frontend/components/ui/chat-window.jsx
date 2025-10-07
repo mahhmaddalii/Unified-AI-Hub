@@ -12,7 +12,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
   const [statusMsg, setStatusMsg] = useState("");
   const [hasFirstMessage, setHasFirstMessage] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("deepseek-chat");
+  const [selectedModel, setSelectedModel] = useState("gpt5-nano");
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [showModelDialog, setShowModelDialog] = useState(false);
   const messagesEndRef = useRef(null);
@@ -23,12 +23,11 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
   // AI Models with more options
   const aiModels = [
     { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={24} /> },
-    { id: "deepseek-coder", name: "DeepSeek Coder", description: "Optimized for programming tasks", icon: "💻" },
-    { id: "claude-3", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={24} /> },
-    { id: "gpt-4", name: "GPT-4", description: "Good for complex reasoning", icon: <OpenAI size={24} /> },
-    { id: "gemini-pro", name: "Gemini Pro", description: "Great for multimodal tasks", icon: <Gemini.Color size={24} /> },
-    { id: "llama-3", name: "Llama 3", description: "Open-source alternative", icon: <Meta size={24} /> },
-    { id: "mistral", name: "Mistral", description: "Efficient and fast", icon: <Mistral.Color size={24} /> },
+    { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={24} /> },
+    { id: "gpt5-nano", name: "GPT-5 Nano", description: "Good for complex reasoning", icon: <OpenAI size={24} /> },
+    { id: "gemini-flashlite", name: "Gemini Pro", description: "Great for multimodal tasks", icon: <Gemini.Color size={24} /> },
+    { id: "llama guard 4", name: "Llama 3", description: "Open-source alternative", icon: <Meta size={24} /> },
+    { id: "mistral nemo", name: "Mistral", description: "Efficient and fast", icon: <Mistral.Color size={24} /> },
   ];
 
   // Default prompt cards
@@ -77,57 +76,103 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }
 
-  const sendMessage = async () => {
-    if (!input.trim() && attachedFiles.length === 0) return;
-    setStatusMsg("");
+  
 
-    const userMsg = {
-      id: Date.now(),
-      role: "user",
-      text: input.trim(),
-      files: attachedFiles.length > 0 ? [...attachedFiles] : undefined
-    };
 
-    setMessages((m) => [...m, userMsg]);
-    setInput("");
-    setAttachedFiles([]);
-    setLoading(true);
-    setIsInputExpanded(false);
 
-    if (!hasFirstMessage) {
-      setHasFirstMessage(true);
-      if (onFirstMessage) onFirstMessage();
+
+  const sendMessage = () => {
+  if (!input.trim()) return;
+
+  const userMsg = {
+    id: Date.now(),
+    role: "user",
+    text: input.trim(),
+  };
+
+  setMessages((m) => [...m, userMsg]);
+  setHasFirstMessage(true);
+  setInput("");
+  setLoading(true);
+
+  const assistantId = Date.now() + 1;
+  const url = "http://127.0.0.1:8000/api/chat/stream/?text=" + encodeURIComponent(userMsg.text) + "&model=" + encodeURIComponent(selectedModel);
+
+  console.log("Starting SSE connection to:", url);
+  
+  const es = new EventSource(url);
+  let receivedFirstMessage = false;
+
+  es.onmessage = (event) => {
+    const data = event.data;
+    
+    console.log("=== FRONTEND DEBUG ===");
+    console.log("Raw data received:", JSON.stringify(data));
+    console.log("Data length:", data.length);
+    console.log("=== END DEBUG ===");
+
+    if (data === '[DONE]') {
+      console.log("Stream completed normally");
+      es.close();
+      setLoading(false);
+      return;
     }
 
-    try {
-      const formData = new FormData();
-      formData.append('messages', JSON.stringify([...messages, userMsg]));
-      formData.append('model', selectedModel);
-
-      attachedFiles.forEach(file => {
-        formData.append('files', file);
-      });
-
-      const res = await fetch("http://127.0.0.1:8000/api/chat/", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data?.reply) {
-        const assistantMsg = { id: Date.now() + 1, role: "assistant", text: data.reply };
-        setMessages((m) => [...m, assistantMsg]);
-      } else {
-        setStatusMsg(data?.error || "No response from server. Try again.");
-      }
-    } catch (err) {
-      console.error("Chat error:", err);
-      setStatusMsg("Could not reach server. Please try again.");
-    } finally {
+    if (data.startsWith("[ERROR]")) {
+      console.error("Stream error:", data);
+      es.close();
+      setStatusMsg(data);
       setLoading(false);
+      return;
+    }
+
+    // Process the data - replace escaped newlines with actual newlines
+    const processedData = data.replace(/\\n/g, '\n');
+
+    if (!receivedFirstMessage) {
+      console.log("First message received, stopping loader");
+      setLoading(false);
+      receivedFirstMessage = true;
+      
+      setMessages(prev => [...prev, {
+        id: assistantId,
+        role: "assistant", 
+        text: processedData
+      }]);
+    } else {
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantId 
+          ? { ...msg, text: msg.text + processedData }
+          : msg
+      ));
     }
   };
+
+  es.onerror = (err) => {
+    console.error("SSE connection error:", err);
+    es.close();
+    setLoading(false);
+    setStatusMsg("Streaming error. Check server logs.");
+  };
+
+  es.onopen = () => {
+    console.log("SSE connection opened");
+  };
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

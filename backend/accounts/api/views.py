@@ -1,14 +1,15 @@
 from datetime import timedelta
-import json
+import json, asyncio
 import os
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core.files.storage import default_storage
 from django.core.mail import send_mail
-from django.http import JsonResponse, HttpResponseRedirect
+from django.http import JsonResponse, HttpResponseRedirect, StreamingHttpResponse
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators import csrf
 from django.shortcuts import redirect
 from urllib.parse import urlencode
 from rest_framework import status
@@ -25,12 +26,17 @@ from ..gemini import get_bot_response
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from dotenv import load_dotenv
 from django.contrib.auth.decorators import login_required
+import sys ,time
+from django.utils.encoding import force_str
 
 load_dotenv()
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
 User = get_user_model()
 
+def stream_yield(text: str):
+    sys.stdout.flush()  # force flush to client
+    return f"data: {force_str(text)}\n\n"
 
 # ---------- Signup ----------
 @api_view(['POST'])
@@ -141,7 +147,7 @@ def google_post_login(request):
 
 
 # ---------- RAG Endpoints ----------
-@csrf_exempt
+@csrf.csrf_exempt
 def upload_document(request):
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
@@ -179,35 +185,102 @@ def upload_document(request):
     print(all_chunks)
     return JsonResponse({"message": " PDF processed and embeddings stored."})
 
+# views.py (only chat_view part shown — replace your current chat_view)
+
+
+
+
+
+def _sse_chunk(text: str) -> str:
+    """Return properly formatted SSE chunk."""
+    if text == '':
+        return ""
+    else:
+        # Send text as-is - frontend will handle formatting
+        return f"data: {text}\n\n"
 
 @csrf_exempt
 def chat_view(request):
-    if request.method != "POST":
-        return JsonResponse({"error": "POST required"}, status=405)
+    """Handle streaming chat messages."""
+    if request.method != "GET":
+        return JsonResponse({"error": "GET required for streaming"}, status=405)
 
-    data = json.loads(request.body)
-    query = data.get("text", "").strip()
+    query = request.GET.get("text", "").strip()
+    model_id = request.GET.get("model", "gpt5-nano")
+
     if not query:
         return JsonResponse({"error": "Empty message"}, status=400)
 
+    # Load vectorstore for RAG
     vectorstore = load_vectorstore()
     doc_context = ""
+
+    # Retrieve similar documents if vectorstore is available
     if vectorstore:
-        results = vectorstore.similarity_search_with_score(query, k=2)
-        if results:
-            top_doc, top_score = results[0]
-            if top_score > 0.66:
-                doc_context = "\n\n".join([doc.page_content for doc, score in results])
+        try:
+            results = vectorstore.similarity_search_with_score(query, k=2)
+            if results:
+                top_doc, top_score = results[0]
+                if top_score > 0.66:
+                    doc_context = "\n\n".join([
+                        doc.page_content for doc, score in results
+                    ])
+        except Exception as e:
+            print(f"RAG error: {e}")
 
-    if doc_context:
-        enriched_query = (
-            f"You are a helpful assistant.\n\n"
-            f"Here are some PDF excerpts that *might* help:\n{doc_context}\n\n"
-            f"User's question: {query}\n\n"
-            f"If the excerpts are relevant, use them. If not, ignore them and answer normally."
-        )
-        response = get_bot_response(enriched_query)
-    else:
-        response = get_bot_response(query)
+    # Enrich query with document excerpts (if any)
+    enriched_query = (
+        f"Here are some PDF excerpts:\n{doc_context}\n\nUser: {query}"
+        if doc_context else query
+    )
 
-    return JsonResponse({"response": response})
+    # Stream response - SIMPLIFIED
+    def event_stream():
+     try:
+        # Get the complete response from Gemini
+        response_text = ""
+        for chunk in get_bot_response(enriched_query, model_id):
+            response_text += chunk
+        
+        print(f"DEBUG: Complete response: {repr(response_text)}")
+        
+        # Better chunking that preserves original spacing exactly
+        import re
+        
+        # Split into tokens that preserve the exact original spacing
+        tokens = re.findall(r'\S+\s*', response_text)
+        
+        # Stream tokens directly without joining (smoother streaming)
+        for token in tokens:
+            if token.strip():
+                escaped_token = token.replace('\n', '\\n')
+                yield f"data: {escaped_token}\n\n"
+                import time
+                time.sleep(0.05)  # Slightly faster for individual tokens
+                    
+     except Exception as e:
+        print(f"DEBUG: Error: {str(e)}")
+        yield f"data: [ERROR] {str(e)}\n\n"
+     yield "data: [DONE]\n\n"
+
+    # Create streaming response with proper headers
+    response = StreamingHttpResponse(
+        event_stream(),
+        content_type='text/event-stream'
+    )
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'  # Disable buffering for nginx
+    response['Access-Control-Allow-Origin'] = '*'
+    response['Access-Control-Allow-Headers'] = 'Cache-Control'
+    return response
+
+
+
+
+
+
+
+
+
+
+
