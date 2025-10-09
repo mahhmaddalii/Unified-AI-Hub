@@ -23,10 +23,11 @@ from langchain_community.vectorstores import PGVector
 from langchain_cohere import CohereEmbeddings
 from ..documents import CONNECTION_STRING, COLLECTION_NAME, load_vectorstore
 from ..gemini import get_bot_response
+from ..generate_image import image_generator
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from dotenv import load_dotenv
 from django.contrib.auth.decorators import login_required
-import sys ,time
+import sys ,time, re
 from django.utils.encoding import force_str
 
 load_dotenv()
@@ -237,31 +238,62 @@ def chat_view(request):
     # Stream response - SIMPLIFIED
     def event_stream():
      try:
-        # Get the complete response from Gemini
+        # Special handling for Gemini 2.5 Flash Image
+        if model_id == "gemini-2.5-flash-image":
+            print("=== Generating Gemini 2.5 Image ===")
+            
+            try:
+                text_response, image_url = image_generator(query)
+                print(f"DEBUG: Text response length: {len(text_response) if text_response else 0}")
+            except Exception as e:
+                print(f"DEBUG: Image generation error: {str(e)}")
+                yield f"data: [ERROR] Image generation failed: {str(e)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            # Step 1: Stream the text response token by token
+            if text_response and text_response != "[No text response]":
+                print("DEBUG: Streaming text response")
+                # Split text into tokens for streaming
+                tokens = re.findall(r'\S+\s*', text_response)
+                print(f"DEBUG: Number of tokens: {len(tokens)}")
+                
+                for token in tokens:
+                    if token.strip():
+                        escaped_token = token.replace('\n', '\\n')
+                        
+                        yield f"data: {escaped_token}\n\n"
+                        import time
+                        time.sleep(0.05)
+            else:
+                print("DEBUG: No text response, sending default message")
+                yield f"data: Here's your generated image:\n\n"
+            
+            # Step 2: Then send the image (if available)
+            if image_url:
+                yield f"data: [IMAGE]{image_url}\n\n"
+
+            yield "data: [DONE]\n\n"
+            return
+
+        # Normal text streaming for all other models
         response_text = ""
         for chunk in get_bot_response(enriched_query, model_id):
             response_text += chunk
         
-        print(f"DEBUG: Complete response: {repr(response_text)}")
-        
-        # Better chunking that preserves original spacing exactly
-        import re
-        
-        # Split into tokens that preserve the exact original spacing
         tokens = re.findall(r'\S+\s*', response_text)
-        
-        # Stream tokens directly without joining (smoother streaming)
         for token in tokens:
             if token.strip():
                 escaped_token = token.replace('\n', '\\n')
                 yield f"data: {escaped_token}\n\n"
                 import time
-                time.sleep(0.05)  # Slightly faster for individual tokens
+                time.sleep(0.05)
                     
      except Exception as e:
         print(f"DEBUG: Error: {str(e)}")
         yield f"data: [ERROR] {str(e)}\n\n"
      yield "data: [DONE]\n\n"
+
 
     # Create streaming response with proper headers
     response = StreamingHttpResponse(
