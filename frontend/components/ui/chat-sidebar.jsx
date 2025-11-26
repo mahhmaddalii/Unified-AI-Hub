@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { v4 as uuidv4 } from "uuid";
+
 import {
   PlusIcon,
   ChatBubbleOvalLeftIcon,
@@ -17,13 +19,9 @@ import {
 } from "@heroicons/react/24/outline";
 import SettingsPanel from "./settings-panel";
 
-export default function ChatSidebar({ isOpen, onToggle }) {
+export default function ChatSidebar({ isOpen, onToggle, onSelectChat, activeChatId, chats = [], onChatsUpdate, onDeleteChat, onNewChat}) {
   const [activeTab, setActiveTab] = useState("chats");
-  const [chats, setChats] = useState([
-    { id: 1, name: "Project Discussion", lastActive: "2 hours ago" },
-    { id: 2, name: "Technical Support", lastActive: "1 day ago" },
-    { id: 3, name: "Brainstorming Session", lastActive: "3 days ago" }
-  ]);
+  
   const [isMobile, setIsMobile] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -96,26 +94,50 @@ export default function ChatSidebar({ isOpen, onToggle }) {
     };
   }, [isOpen, isMobile]);
 
-  const addChat = () => {
+  // In ChatSidebar component, update the addChat function:
+const addChat = () => {
+  if (onNewChat) {
+    // Use the new prepareNewChat function
+    onNewChat();
+  } else {
+    // Fallback to original behavior
     const newChat = {
-      id: chats.length + 1,
+      id: uuidv4(),
       name: `New Chat ${chats.length + 1}`,
       lastActive: "Just now"
     };
-    setChats([newChat, ...chats]);
-    if (isMobile) onToggle(false);
-  };
+    
+    const updatedChats = [newChat, ...chats];
+    if (onChatsUpdate) onChatsUpdate(updatedChats);
+  }
+
+  if (isMobile) onToggle(false);
+};
 
   const deleteChat = (chatId) => {
-    setChats(chats.filter(chat => chat.id !== chatId));
-    setActiveMenu(null);
-  };
+  // Use the callback for chat deletion
+  if (onDeleteChat) {
+    onDeleteChat(chatId);
+  } else {
+    // Fallback to original behavior if no callback provided
+    const updatedChats = chats.filter(chat => chat.id !== chatId);
+    if (onChatsUpdate) onChatsUpdate(updatedChats);
+    
+    // Clear active chat if we're deleting it
+    if (chatId === activeChatId && onSelectChat) {
+      onSelectChat(null);
+    }
+  }
+  
+  setActiveMenu(null);
+};
 
   const renameChat = (chatId, newName) => {
     if (newName.trim()) {
-      setChats(chats.map(chat =>
+      const updatedChats = chats.map(chat =>
         chat.id === chatId ? { ...chat, name: newName.trim() } : chat
-      ));
+      );
+      if (onChatsUpdate) onChatsUpdate(updatedChats);
     }
     setRenamingChat(null);
     setActiveMenu(null);
@@ -218,7 +240,10 @@ export default function ChatSidebar({ isOpen, onToggle }) {
             </button>
 
             <button
-              onClick={() => { setActiveTab("chats"); onToggle(true); }}
+              onClick={() => {
+                setActiveTab("chats");
+                onToggle(true);
+              }}
               className="p-2 rounded-xl hover:bg-gray-50 transition-all"
               title="Chats"
             >
@@ -226,19 +251,35 @@ export default function ChatSidebar({ isOpen, onToggle }) {
             </button>
 
             <button
-              onClick={() => { setActiveTab("agents"); onToggle(true); }}
+              onClick={() => {
+                setActiveTab("agents");
+                onToggle(true);
+              }}
               className="p-2 rounded-xl hover:bg-gray-50 transition-all"
               title="Agents"
             >
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              <svg
+                className="w-5 h-5 text-gray-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
               </svg>
             </button>
           </div>
 
           <div className="mt-auto pt-4">
             <button
-              onClick={() => { setActiveTab("profile"); onToggle(true); }}
+              onClick={() => {
+                setActiveTab("profile");
+                onToggle(true);
+              }}
               className="p-2 rounded-xl hover:bg-gray-50 transition-all"
               title="Profile"
             >
@@ -262,7 +303,9 @@ export default function ChatSidebar({ isOpen, onToggle }) {
           <div className="flex flex-col h-full p-4">
             {/* Header with search functionality */}
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-gray-800 capitalize">{activeTab}</h3>
+              <h3 className="font-semibold text-gray-800 capitalize">
+                {activeTab}
+              </h3>
               <div className="flex items-center gap-2">
                 {activeTab === "chats" && (
                   <>
@@ -277,11 +320,24 @@ export default function ChatSidebar({ isOpen, onToggle }) {
                           autoFocus
                         />
                         <button
-                          onClick={() => { setShowSearch(false); setSearchQuery(""); }}
+                          onClick={() => {
+                            setShowSearch(false);
+                            setSearchQuery("");
+                          }}
                           className="text-gray-400 hover:text-gray-600 transition-colors"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M6 18L18 6M6 6l12 12"
+                            />
                           </svg>
                         </button>
                       </div>
@@ -291,8 +347,18 @@ export default function ChatSidebar({ isOpen, onToggle }) {
                         className="p-1.5 rounded-xl hover:bg-gray-50 transition-all"
                         title="Search"
                       >
-                        <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                        <svg
+                          className="w-5 h-5 text-gray-500"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                          />
                         </svg>
                       </button>
                     )}
@@ -318,16 +384,27 @@ export default function ChatSidebar({ isOpen, onToggle }) {
                     setShowSearch(false);
                     setSearchQuery("");
                   }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex-1 justify-center ${activeTab === tab
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex-1 justify-center ${
+                    activeTab === tab
                       ? "bg-white text-purple-600 shadow-sm"
                       : "text-gray-500 hover:text-gray-700"
-                    }`}
+                  }`}
                 >
                   {tab === "chats" ? (
                     <ChatBubbleOvalLeftIcon className="w-4 h-4" />
                   ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                      />
                     </svg>
                   )}
                   <span className="capitalize">{tab}</span>
@@ -350,99 +427,165 @@ export default function ChatSidebar({ isOpen, onToggle }) {
                   </button>
 
                   <div className="space-y-1 mt-3">
-                    {isLoading ? (
-                      Array.from({ length: 3 }).map((_, index) => (
-                        <div key={index} className="flex items-center justify-between p-2 rounded-xl animate-pulse bg-gray-50">
-                          <div className="space-y-1.5">
-                            <div className="h-3.5 bg-gray-200 rounded w-32"></div>
-                            <div className="h-2.5 bg-gray-200 rounded w-20"></div>
-                          </div>
-                          <div className="h-5 w-5 bg-gray-200 rounded-full"></div>
-                        </div>
-                      ))
-                    ) : (
-                      (searchQuery ? filteredChats : chats).map((chat) => (
-                        <div
-                          key={chat.id}
-                          className="group relative p-2.5 rounded-xl hover:bg-gray-50 border border-transparent hover:border-gray-100 transition-all duration-200"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1 min-w-0">
-                              {renamingChat === chat.id ? (
-                                <input
-                                  ref={inputRef}
-                                  type="text"
-                                  value={renameValue}
-                                  onChange={(e) => setRenameValue(e.target.value)}
-                                  onKeyDown={(e) => handleRenameKeyPress(e, chat.id)}
-                                  onBlur={() => renameChat(chat.id, renameValue)}
-                                  className="w-full bg-transparent outline-none text-gray-800 font-medium border-b border-purple-300 pb-1 text-sm"
-                                />
-                              ) : (
-                                <>
-                                  <div className="font-medium text-gray-800 truncate text-sm">{chat.name}</div>
-                                  <div className="text-xs text-gray-500 mt-0.5">{chat.lastActive}</div>
-                                </>
-                              )}
+                    {isLoading
+                      ? Array.from({ length: 3 }).map((_, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center justify-between p-2 rounded-xl animate-pulse bg-gray-50"
+                          >
+                            <div className="space-y-1.5">
+                              <div className="h-3.5 bg-gray-200 rounded w-32"></div>
+                              <div className="h-2.5 bg-gray-200 rounded w-20"></div>
                             </div>
+                            <div className="h-5 w-5 bg-gray-200 rounded-full"></div>
+                          </div>
+                        ))
+                      : (searchQuery ? filteredChats : chats).map((chat) => (
+                          <div
+                            key={chat.id}
+                            onClick={() => {
+                              if (onSelectChat) onSelectChat(chat.id);
+                              if (isMobile) onToggle(false);
+                            }}
+                            className={`group relative p-2.5 rounded-xl cursor-pointer transition-all duration-200 ${
+                              chat.id === activeChatId
+                                ? "bg-purple-100 border border-purple-200"
+                                : "hover:bg-gray-50 border border-transparent hover:border-gray-100"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                {renamingChat === chat.id ? (
+                                  <input
+                                    ref={inputRef}
+                                    type="text"
+                                    value={renameValue}
+                                    onChange={(e) =>
+                                      setRenameValue(e.target.value)
+                                    }
+                                    onKeyDown={(e) =>
+                                      handleRenameKeyPress(e, chat.id)
+                                    }
+                                    onBlur={() =>
+                                      renameChat(chat.id, renameValue)
+                                    }
+                                    className="w-full bg-transparent outline-none text-gray-800 font-medium border-b border-purple-300 pb-1 text-sm"
+                                  />
+                                ) : (
+                                  <>
+                                    <div className="font-medium text-gray-800 truncate text-sm">
+                                      {chat.name}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-0.5">
+                                      {chat.lastActive}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
 
-                            <div className="relative" ref={el => menuRefs.current[chat.id] = el}>
-                              <button
-                                onClick={() => setActiveMenu(activeMenu === chat.id ? null : chat.id)}
-                                className={`p-1 rounded-lg ${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-gray-200 transition-all duration-200 ml-1`}
+                              <div
+                                className="relative"
+                                ref={(el) => (menuRefs.current[chat.id] = el)}
                               >
-                                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
-                                </svg>
-                              </button>
+                                <button
+                                  onClick={() =>
+                                    setActiveMenu(
+                                      activeMenu === chat.id ? null : chat.id
+                                    )
+                                  }
+                                  className={`p-1 rounded-lg ${
+                                    isMobile
+                                      ? "opacity-100"
+                                      : "opacity-0 group-hover:opacity-100"
+                                  } hover:bg-gray-200 transition-all duration-200 ml-1`}
+                                >
+                                  <svg
+                                    className="w-4 h-4 text-gray-500"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"
+                                    />
+                                  </svg>
+                                </button>
 
-                              {activeMenu === chat.id && (
-                                <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in-0 zoom-in-95">
-                                  <button
-                                    onClick={() => handleRenameStart(chat.id, chat.name)}
-                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                                  >
-                                    <PencilSquareIcon className="w-4 h-4" />
-                                    Rename
-                                  </button>
-                                  <button
-                                    onClick={() => shareChat(chat.id)}
-                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                                  >
-                                    <ShareIcon className="w-4 h-4" />
-                                    Share
-                                  </button>
-                                  <button
-                                    onClick={() => deleteChat(chat.id)}
-                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                                  >
-                                    <TrashIcon className="w-4 h-4" />
-                                    Delete
-                                  </button>
-                                </div>
-                              )}
+                                {activeMenu === chat.id && (
+                                  <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in-0 zoom-in-95">
+                                    <button
+                                      onClick={() =>
+                                        handleRenameStart(chat.id, chat.name)
+                                      }
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                                    >
+                                      <PencilSquareIcon className="w-4 h-4" />
+                                      Rename
+                                    </button>
+                                    <button
+                                      onClick={() => shareChat(chat.id)}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                                    >
+                                      <ShareIcon className="w-4 h-4" />
+                                      Share
+                                    </button>
+                                    <button
+                                      onClick={() => deleteChat(chat.id)}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                                    >
+                                      <TrashIcon className="w-4 h-4" />
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
-                    )}
+                        ))}
 
-                    {searchQuery && filteredChats.length === 0 && !isLoading && (
-                      <div className="text-center py-4 text-gray-400">
-                        <svg className="w-10 h-10 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-                        </svg>
-                        <p className="text-sm">No chats found matching "{searchQuery}"</p>
-                      </div>
-                    )}
+                    {searchQuery &&
+                      filteredChats.length === 0 &&
+                      !isLoading && (
+                        <div className="text-center py-4 text-gray-400">
+                          <svg
+                            className="w-10 h-10 mx-auto mb-2 opacity-50"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={1}
+                              d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                            />
+                          </svg>
+                          <p className="text-sm">
+                            No chats found matching "{searchQuery}"
+                          </p>
+                        </div>
+                      )}
                   </div>
                 </div>
               )}
 
               {activeTab === "agents" && (
                 <div className="text-center py-8 text-gray-400">
-                  <svg className="w-14 h-14 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  <svg
+                    className="w-14 h-14 mx-auto mb-3 opacity-50"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1}
+                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
                   </svg>
                   <p className="text-sm">No agents configured yet</p>
                   <button className="mt-2 px-3 py-1.5 text-sm text-purple-600 hover:text-purple-700 transition-colors">
@@ -452,61 +595,80 @@ export default function ChatSidebar({ isOpen, onToggle }) {
               )}
             </div>
 
-           {/* Profile Section */}
-<div className="pt-3 border-t border-gray-200 mt-auto relative">
-  <button
-    onClick={() => setShowProfileModal(prev => !prev)}
-    className={`w-full flex items-center gap-2 px-2 py-2 rounded-xl transition-all duration-200 text-left ${showProfileModal 
-        ? "bg-purple-100 text-purple-700" 
-        : "text-gray-600 hover:bg-gray-50"
-      }`}
-  >
-    <div className={`p-1 rounded-lg ${showProfileModal ? "bg-white" : "bg-gray-100"}`}>
-      <UserIcon className={`w-4 h-4 ${showProfileModal ? "text-purple-600" : "text-gray-600"}`} />
-    </div>
-    <div className="flex-1 min-w-0">
-      <div className="font-medium text-gray-800 text-sm truncate">{userProfile.name}</div>
-      <div className="text-gray-500 text-xs truncate">{userProfile.email}</div>
-    </div>
-  </button>
+            {/* Profile Section */}
+            <div className="pt-3 border-t border-gray-200 mt-auto relative">
+              <button
+                onClick={() => setShowProfileModal((prev) => !prev)}
+                className={`w-full flex items-center gap-2 px-2 py-2 rounded-xl transition-all duration-200 text-left ${
+                  showProfileModal
+                    ? "bg-purple-100 text-purple-700"
+                    : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <div
+                  className={`p-1 rounded-lg ${
+                    showProfileModal ? "bg-white" : "bg-gray-100"
+                  }`}
+                >
+                  <UserIcon
+                    className={`w-4 h-4 ${
+                      showProfileModal ? "text-purple-600" : "text-gray-600"
+                    }`}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-800 text-sm truncate">
+                    {userProfile.name}
+                  </div>
+                  <div className="text-gray-500 text-xs truncate">
+                    {userProfile.email}
+                  </div>
+                </div>
+              </button>
 
-  {/* Profile Menu Box - Positioned absolutely above the button */}
-  {showProfileModal && (
-    <div
-      ref={modalRef}
-      className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 animate-in fade-in-0 zoom-in-95"
-    >
-      <div className="p-1.5">
-        {profileMenuItems.map((item, index) => (
-          <button
-            key={index}
-            onClick={() => {
-              item.action();
-              setShowProfileModal(false); // Close menu when an item is clicked
-            }}
-            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-left"
-          >
-            <div className={`p-1 rounded-lg ${
-              item.color === 'text-red-600' ? 'bg-red-50' :
-              item.color === 'text-purple-600' ? 'bg-purple-50' :
-              'bg-gray-100'
-            }`}>
-              <item.icon className={`w-4 h-4 ${item.color}`} />
+              {/* Profile Menu Box - Positioned absolutely above the button */}
+              {showProfileModal && (
+                <div
+                  ref={modalRef}
+                  className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 animate-in fade-in-0 zoom-in-95"
+                >
+                  <div className="p-1.5">
+                    {profileMenuItems.map((item, index) => (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          item.action();
+                          setShowProfileModal(false); // Close menu when an item is clicked
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-left"
+                      >
+                        <div
+                          className={`p-1 rounded-lg ${
+                            item.color === "text-red-600"
+                              ? "bg-red-50"
+                              : item.color === "text-purple-600"
+                              ? "bg-purple-50"
+                              : "bg-gray-100"
+                          }`}
+                        >
+                          <item.icon className={`w-4 h-4 ${item.color}`} />
+                        </div>
+                        <span className={`font-medium text-sm ${item.color}`}>
+                          {item.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <span className={`font-medium text-sm ${item.color}`}>{item.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )}
-</div>
-          </div>    
+          </div>
         </div>
       )}
 
       {/* Mobile Sidebar Overlay - CORRECTLY PLACED outside main sidebar */}
       {isOpen && isMobile && (
-        <div 
+        <div
           className="fixed inset-0 bg-transparent z-20 md:hidden"
           onClick={() => onToggle(false)}
         />
@@ -514,7 +676,7 @@ export default function ChatSidebar({ isOpen, onToggle }) {
 
       {/* Settings Panel - CORRECTLY PLACED outside main sidebar */}
       {showSettings && (
-        <SettingsPanel 
+        <SettingsPanel
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
           settingsCategory={settingsCategory}

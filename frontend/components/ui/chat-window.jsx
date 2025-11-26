@@ -1,26 +1,64 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import Image from "next/image";
 import { Meta, OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
 
-export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
-  const [messages, setMessages] = useState([]);
+export default function ChatWindow({ 
+  chatId, 
+  messages: propMessages = [],
+  onNewMessage,
+  hasActiveChat,
+  isLoading, // Loading state from parent
+  onSetLoading // Callback to update loading state in parent
+}) {
+  const [messages, setMessages] = useState(propMessages);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
-  const [hasFirstMessage, setHasFirstMessage] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("gpt5-nano");
+  const [selectedModel, setSelectedModel] = useState("gemini-flashlite");
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [showModelDialog, setShowModelDialog] = useState(false);
+  
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const modelDialogRef = useRef(null);
 
-  // AI Models with more options
+  // Track current streaming connection PER CHAT
+  const currentStreamRef = useRef(null);
+  const latestChatIdRef = useRef(chatId);
+  const currentAssistantIdRef = useRef(null);
+
+  // Update the ref whenever chatId changes
+  useEffect(() => {
+    latestChatIdRef.current = chatId;
+    console.log("🆔 chatId updated:", chatId);
+    
+    // Close any existing stream when chat changes
+    if (currentStreamRef.current) {
+      currentStreamRef.current.close();
+      currentStreamRef.current = null;
+    }
+  }, [chatId]);
+
+  // Update local messages when prop messages change
+  useEffect(() => {
+    setMessages(propMessages);
+  }, [propMessages, chatId]);
+
+  // Clean up streaming when component unmounts
+  useEffect(() => {
+    return () => {
+      if (currentStreamRef.current) {
+        currentStreamRef.current.close();
+        currentStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  // AI Models and prompt cards
   const aiModels = [
     { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={24} /> },
     { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={24} /> },
@@ -31,7 +69,6 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     { id: "mistral nemo", name: "Mistral", description: "Efficient and fast", icon: <Mistral.Color size={24} /> },
   ];
 
-  // Default prompt cards
   const promptCards = [
     { title: "Explain concepts", prompt: "Explain quantum computing in simple terms", icon: "🧠" },
     { title: "Debug code", prompt: "Help me debug this Python function", icon: "🐛" },
@@ -41,10 +78,9 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, loading]);
+  }, [messages, isLoading]);
 
   useEffect(() => {
-    // Auto-adjust textarea height based on content and expansion state
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
@@ -61,7 +97,6 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     }
   }, [input, isInputExpanded]);
 
-  // Close model dialog when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (modelDialogRef.current && !modelDialogRef.current.contains(event.target)) {
@@ -77,195 +112,354 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }
 
-  
+  const showWelcomeScreen = !hasActiveChat || messages.length === 0;
 
+  const sendMessage = useCallback(() => {
+    if (!input.trim()) return;
 
+    const generateUniqueId = () =>
+      `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
+    const userMsg = {
+      id: generateUniqueId(),
+      role: "user",
+      text: input.trim(),
+    };
 
-  const sendMessage = () => {
-  if (!input.trim()) return;
+    // Generate and store assistant ID in ref
+    currentAssistantIdRef.current = generateUniqueId();
 
-  const generateUniqueId = () =>
-    `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    console.log("🚀 sendMessage called with:", {
+      input: input.trim(),
+      hasActiveChat: !!latestChatIdRef.current,
+      currentChatId: latestChatIdRef.current
+    });
 
-  const userMsg = {
-    id: generateUniqueId(),
-    role: "user",
-    text: input.trim(),
-  };
+    console.log("👤 Sending user message, latestChatId:", latestChatIdRef.current);
+    console.log("🤖 Generated assistant ID:", currentAssistantIdRef.current);
 
-  setMessages((m) => [...m, userMsg]);
-  setHasFirstMessage(true);
-  setInput("");
-  setLoading(true);
-  setStatusMsg(""); // Clear any previous status messages
-
-  const assistantId = generateUniqueId();
-  const url = "http://127.0.0.1:8000/api/chat/stream/?text=" + encodeURIComponent(userMsg.text) + "&model=" + encodeURIComponent(selectedModel);
-
-  console.log("Starting SSE connection to:", url);
-  
-  const es = new EventSource(url);
-  
-  // Create a scoped variable for this specific message
-  let receivedFirstMessage = false;
-  let hasImage = false;
-
-  // Add timeout
-  const timeoutId = setTimeout(() => {
-    if (!receivedFirstMessage && !hasImage) {
-      console.log("Connection timeout for message:", assistantId);
-      es.close();
-      setLoading(false);
-      setStatusMsg("Request timeout. Please try again.");
-    }
-  }, 30000); // 30 second timeout
-
-  es.onmessage = (event) => {
-    const data = event.data;
-    console.log("Received data:", data.substring(0, 100)); // Log first 100 chars
-
-    // Clear timeout when we start receiving data
-    clearTimeout(timeoutId);
-
-    if (data === '[DONE]') {
-      console.log("Stream completed for message:", assistantId);
-      es.close();
-      setLoading(false);
-      return;
-    }
-
-    if (data.startsWith('[IMAGE]')) {
-      const imageUrl = data.replace('[IMAGE]', '');
-      console.log("Received image for message:", assistantId, imageUrl);
-      hasImage = true;
-      
-      setMessages(prev => prev.map(msg => 
-        msg.id === assistantId 
-          ? { ...msg, image: imageUrl }
-          : msg
-      ));
-      return;
-    }
-
-    if (data.startsWith("[ERROR]")) {
-      console.error("Stream error:", data);
-      es.close();
-      setStatusMsg(data);
-      setLoading(false);
-      return;
-    }
-
-    const processedData = data.replace(/\\n/g, '\n');
-    console.log("Processed text data:", processedData);
-
-    if (!receivedFirstMessage) {
-      console.log("First message chunk for:", assistantId);
-      setLoading(false);
-      receivedFirstMessage = true;
-      setMessages(prev => [...prev, {
-        id: assistantId,
-        role: "assistant", 
-        text: processedData
-      }]);
-    } else {
-      setMessages(prev => prev.map(msg => 
-        msg.id === assistantId 
-          ? { ...msg, text: msg.text + processedData }
-          : msg
-      ));
-    }
-  };
-
-  es.onerror = (err) => {
-    console.error("SSE connection error for message:", assistantId, err);
-    clearTimeout(timeoutId);
+    // Update local state
+    setMessages(prev => [...prev, userMsg]);
     
-    // Only close and show error if we haven't received anything yet
-    if (!receivedFirstMessage && !hasImage) {
-      es.close();
-      setLoading(false);
-      setStatusMsg("Streaming error. Check server logs.");
-    } else {
-      // If we have partial content but got an error, still close the connection
-      es.close();
+    // Notify parent about USER message and get the chatId
+    let currentChatId = latestChatIdRef.current;
+    const isFirstMessage = !currentChatId; // Check if this is the first message
+    
+    if (onNewMessage) {
+      console.log("📨 Calling onNewMessage with user message");
+      const result = onNewMessage(userMsg);
+      console.log("🆔 Parent returned:", result);
+      
+      // Handle the new return format
+      if (result && result.chatId) {
+        latestChatIdRef.current = result.chatId;
+        currentChatId = result.chatId;
+        console.log("🔄 Updated latestChatIdRef to:", result.chatId);
+      }
     }
-  };
+    
+    setInput("");
+    setStatusMsg("");
 
-  es.onopen = () => {
-    console.log("SSE connection opened for message:", assistantId);
-  };
-};
+    // Use the latest chatId after parent has processed the message
+    console.log("🌐 Final chatId for API call:", currentChatId);
+    
+    // Add is_first_message parameter to the API URL
+    const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
+      userMsg.text
+    )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
 
+    console.log("🔗 Making API call to:", url);
 
+    // Set loading state
+    if (onSetLoading) onSetLoading(true);
 
+    // Add a small delay to ensure the chat is properly created before making the API call
+    setTimeout(() => {
+      makeAPIRequest(userMsg.text, currentChatId, currentAssistantIdRef.current, url);
+    }, 100);
+  }, [input, onNewMessage, selectedModel, onSetLoading]);
 
+  // Separate function for making the API request
+  const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
+    // Check if the chat is still active before making the request
+    if (chatId !== latestChatIdRef.current) {
+      console.log("⚠️ Chat changed, aborting API request for old chat:", chatId);
+      if (onSetLoading) onSetLoading(false);
+      return;
+    }
 
+    console.log("🔗 Making API call to:", url);
 
+    // Close any existing stream
+    if (currentStreamRef.current) {
+      currentStreamRef.current.close();
+      currentStreamRef.current = null;
+    }
 
+    const es = new EventSource(url);
+    currentStreamRef.current = es;
+    
+    let receivedFirstMessage = false;
+    let hasImage = false;
+    let assistantMessage = null;
+    let imageUrl = null;
+    let buffer = "";
+    let lastUpdateTime = 0;
+    const UPDATE_INTERVAL = 50;
+    let hasNotifiedParent = false;
 
+    const timeoutId = setTimeout(() => {
+      if (!receivedFirstMessage && !hasImage) {
+        console.log("⏰ Request timeout for chat:", chatId);
+        es.close();
+        currentStreamRef.current = null;
+        if (onSetLoading) onSetLoading(false);
+        setStatusMsg("Request timeout. Please try again.");
+      }
+    }, 30000);
 
+    es.onmessage = (event) => {
+      const data = event.data;
+      console.log("📥 Received SSE data for chat:", chatId, data.substring(0, 100));
+      
+      // Check if this message is still relevant for the current chat
+      if (chatId !== latestChatIdRef.current) {
+        console.log("🚫 Message not relevant - chat changed, closing stream");
+        es.close();
+        currentStreamRef.current = null;
+        if (onSetLoading) onSetLoading(false);
+        return;
+      }
+      
+      clearTimeout(timeoutId);
 
+      if (currentStreamRef.current !== es) {
+        console.log("🚫 Stream no longer relevant");
+        es.close();
+        return;
+      }
 
+      // Handle title updates
+      if (data.startsWith('[TITLE]')) {
+        const title = data.replace('[TITLE]', '');
+        console.log("🏷️ Received chat title:", title);
+        
+        // Notify parent about the title
+        if (onNewMessage) {
+          onNewMessage({
+            id: `title-${Date.now()}`,
+            role: "system",
+            title: title
+          });
+        }
+        return;
+      }
 
+      if (data === '[DONE]') {
+        console.log("✅ Stream completed for chat:", chatId);
+        es.close();
+        currentStreamRef.current = null;
+        if (onSetLoading) onSetLoading(false);
+        
+        // Final update with any remaining buffer
+        if (buffer && assistantMessage) {
+          assistantMessage.text += buffer;
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, text: assistantMessage.text }
+              : msg
+          ));
+          
+          if (!hasNotifiedParent && onNewMessage) {
+            onNewMessage(assistantMessage);
+            hasNotifiedParent = true;
+          }
+        }
+        
+        return;
+      }
 
+      if (data.startsWith('[IMAGE]')) {
+        imageUrl = data.replace('[IMAGE]', '');
+        hasImage = true;
+        
+        if (assistantMessage) {
+          const updatedMessage = { ...assistantMessage, image: imageUrl };
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId ? updatedMessage : msg
+          ));
+          if (onNewMessage && !hasNotifiedParent) {
+            onNewMessage(updatedMessage);
+            hasNotifiedParent = true;
+          }
+        } else {
+          const imageMsg = {
+            id: assistantId,
+            role: "assistant", 
+            text: buffer || "",
+            image: imageUrl
+          };
+          setMessages(prev => [...prev, imageMsg]);
+          assistantMessage = imageMsg;
+          if (onNewMessage && !hasNotifiedParent) {
+            onNewMessage(imageMsg);
+            hasNotifiedParent = true;
+          }
+        }
+        
+        // Clear loading when image is received
+        if (onSetLoading) onSetLoading(false);
+        return;
+      }
 
+      if (data.startsWith("[ERROR]")) {
+        console.error("❌ Stream error:", data);
+        es.close();
+        currentStreamRef.current = null;
+        setStatusMsg(data.replace("[ERROR]", ""));
+        if (onSetLoading) onSetLoading(false);
+        return;
+      }
 
-  const handleKeyDown = (e) => {
+      const processedData = data.replace(/\\n/g, '\n');
+      buffer += processedData;
+
+      const now = Date.now();
+      
+      if (!receivedFirstMessage) {
+        console.log("🎯 First message chunk received");
+        receivedFirstMessage = true;
+        
+        assistantMessage = {
+          id: assistantId,
+          role: "assistant", 
+          text: buffer
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+        
+        // Clear loading immediately when first message is received
+        if (onSetLoading) onSetLoading(false);
+        
+        buffer = "";
+        lastUpdateTime = now;
+        
+        if (onNewMessage && !hasNotifiedParent) {
+          onNewMessage(assistantMessage);
+          hasNotifiedParent = true;
+        }
+      } else if (now - lastUpdateTime > UPDATE_INTERVAL || buffer.length > 20) {
+        if (assistantMessage) {
+          assistantMessage.text += buffer;
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, text: assistantMessage.text }
+              : msg
+          ));
+          buffer = "";
+          lastUpdateTime = now;
+        }
+      }
+    };
+
+    es.onerror = (err) => {
+      console.error("🔌 SSE connection error:", err);
+      clearTimeout(timeoutId);
+      
+      // Check if this error is still relevant for the current chat
+      if (chatId !== latestChatIdRef.current) {
+        console.log("🚫 Error not relevant - chat changed");
+        es.close();
+        return;
+      }
+      
+      if (currentStreamRef.current === es) {
+        // Finalize the assistant message if we have one
+        if (assistantMessage && buffer) {
+          assistantMessage.text += buffer;
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, text: assistantMessage.text }
+              : msg
+          ));
+          if (onNewMessage && !hasNotifiedParent) {
+            onNewMessage(assistantMessage);
+            hasNotifiedParent = true;
+          }
+        }
+        
+        if (!receivedFirstMessage && !hasImage) {
+          if (onSetLoading) onSetLoading(false);
+          setStatusMsg("Connection error. Please try again.");
+        }
+        
+        currentStreamRef.current = null;
+      }
+      
+      es.close();
+    };
+
+    es.onopen = () => {
+      console.log("🔗 SSE connection opened successfully");
+    };
+  }, [selectedModel, onNewMessage, onSetLoading]);
+
+  const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!loading) sendMessage();
+      if (!isLoading) sendMessage();
     }
-  };
+  }, [isLoading, sendMessage]);
 
-  const handlePromptClick = (prompt) => {
+  const handlePromptClick = useCallback((prompt) => {
     setInput(prompt);
     setTimeout(() => {
       textareaRef.current?.focus();
       setIsInputExpanded(true);
     }, 10);
-  };
+  }, []);
 
-  const handleInputChange = (e) => {
+  const handleInputChange = useCallback((e) => {
     setInput(e.target.value);
-  };
+  }, []);
 
-  const toggleInputExpansion = () => {
+  const toggleInputExpansion = useCallback(() => {
     setIsInputExpanded(!isInputExpanded);
     setTimeout(() => textareaRef.current?.focus(), 10);
-  };
+  }, [isInputExpanded]);
 
-  const handleAttachClick = () => {
+  const handleAttachClick = useCallback(() => {
     fileInputRef.current?.click();
-  };
+  }, []);
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = useCallback((e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
       setAttachedFiles(prev => [...prev, ...files]);
     }
     e.target.value = '';
-  };
+  }, []);
 
-  const removeFile = (index) => {
+  const removeFile = useCallback((index) => {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
-  };
+  }, []);
 
-  const handleModelSelect = (modelId) => {
+  const handleModelSelect = useCallback((modelId) => {
     setSelectedModel(modelId);
     setShowModelDialog(false);
-  };
+  }, []);
 
-  const getCurrentModel = () => {
+  const getCurrentModel = useCallback(() => {
     return aiModels.find(model => model.id === selectedModel);
-  };
+  }, [selectedModel]);
 
   return (
     <div className="flex flex-col h-full w-full bg-white">
       {/* Messages Container */}
       <div className="flex-1 overflow-y-auto px-2 py-1 md:px-4">
-        {!hasFirstMessage ? (
-          // Welcome screen with prompt cards - CENTERED
+        {showWelcomeScreen ? (
+          // Welcome screen with prompt cards
           <div className="flex flex-col items-center justify-center h-full px-2 overflow-y-auto">
             {/* Centered Logo and Title */}
             <div className="text-center mb-6 max-w-lg w-full px-2">
@@ -288,7 +482,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
               </p>
             </div>
 
-            {/* Prompt cards grid - FULLY RESPONSIVE */}
+            {/* Prompt cards grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 w-full max-w-2xl px-2 sm:px-4">
               {promptCards.map((card, index) => (
                 <div
@@ -314,7 +508,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
             </div>
           </div>
         ) : (
-          // Chat messages - RESPONSIVE
+          // Chat messages
           <div className="space-y-3 max-w-3xl mx-auto">
             {messages.map((m) => (
               <div
@@ -359,32 +553,22 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
 
                     {m.image && (
                       <div className="mt-3 relative group">
-                        {/* Generated image */}
                         <img
                           src={m.image}
                           alt="Generated Image"
                           className="rounded-lg max-w-full border border-gray-200 shadow-sm"
                         />
-
-                        {/* Download button overlay */}
                         <button
                           onClick={async () => {
                             try {
-                              // Fetch image data (this works for both data URLs & remote URLs)
                               const response = await fetch(m.image);
                               const blob = await response.blob();
-
-                              // Create a temporary object URL
                               const url = window.URL.createObjectURL(blob);
-
-                              // Create an <a> tag and trigger download
                               const a = document.createElement("a");
                               a.href = url;
-                              a.download = "generated-image.png"; // filename for downloaded image
+                              a.download = "generated-image.png";
                               document.body.appendChild(a);
                               a.click();
-
-                              // Cleanup
                               a.remove();
                               window.URL.revokeObjectURL(url);
                             } catch (err) {
@@ -395,7 +579,6 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
                           className="absolute top-2 right-2 bg-white/80 hover:bg-white shadow-md rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Download image"
                         >
-                          {/* Download icon (heroicons style) */}
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             className="h-4 w-4 text-gray-700"
@@ -414,7 +597,6 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
                       </div>
                     )}
 
-                    {/* Show attached files */}
                     {m.files && m.files.length > 0 && (
                       <div className="mt-2 space-y-1">
                         {m.files.map((file, index) => (
@@ -432,8 +614,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
               </div>
             ))}
 
-            {/* Typing indicator */}
-            {loading && (
+            {isLoading && (
               <div className="flex justify-start">
                 <div className="flex max-w-[90%] sm:max-w-[85%]">
                   <div className="flex-shrink-0 mr-2">
@@ -501,14 +682,13 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
         </div>
       )}
 
-      {/* Input area - RESPONSIVE */}
+      {/* Input area */}
       <div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative">
         <div
           className={`max-w-3xl mx-auto rounded-xl p-2 sm:p-2 transition-all duration-200 ${
             input ? "ring-1 sm:ring-2 ring-purple-300" : ""
           } ${input ? "bg-purple-50" : "bg-gray-100"}`}
         >
-          {/* Upper div: Text input with expand button */}
           <div className="flex items-end gap-1.5 sm:gap-2 mb-2 sm:mb-3">
             <textarea
               ref={textareaRef}
@@ -519,10 +699,9 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
               placeholder="Message AI Assistant..."
               rows="1"
               required={attachedFiles.length === 0}
-              disabled={loading}
+              disabled={isLoading}
             />
 
-            {/* Expand button - hidden on very small screens */}
             <button
               type="button"
               onClick={toggleInputExpansion}
@@ -554,11 +733,8 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
             </button>
           </div>
 
-          {/* Lower div: Feature buttons and send button */}
           <div className="flex items-center justify-between">
-            {/* Left side controls */}
             <div className="flex items-center gap-0.5 sm:gap-1">
-              {/* File attachment button */}
               <button
                 type="button"
                 onClick={handleAttachClick}
@@ -580,7 +756,6 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
                 </svg>
               </button>
 
-              {/* Hidden file input */}
               <input
                 type="file"
                 ref={fileInputRef}
@@ -589,7 +764,6 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
                 multiple
               />
 
-              {/* Model selection button - responsive text */}
               <button
                 type="button"
                 onClick={() => setShowModelDialog(true)}
@@ -616,12 +790,11 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
               </button>
             </div>
 
-            {/* Send button */}
             <button
               type="button"
               onClick={sendMessage}
               disabled={
-                loading || (!input.trim() && attachedFiles.length === 0)
+                isLoading || (!input.trim() && attachedFiles.length === 0)
               }
               className="flex items-center justify-center bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0"
               title="Send message"
@@ -638,7 +811,7 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
         </div>
       </div>
 
-      {/* Model selection dialog - RESPONSIVE */}
+      {/* Model selection dialog */}
       {showModelDialog && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-transparent bg-opacity-50"
@@ -740,4 +913,3 @@ export default function ChatWindow({ onFirstMessage, isSidebarOpen }) {
     </div>
   );
 }
-

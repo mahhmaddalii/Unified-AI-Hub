@@ -23,6 +23,7 @@ from langchain_community.vectorstores import PGVector
 from langchain_cohere import CohereEmbeddings
 from ..documents import CONNECTION_STRING, COLLECTION_NAME, load_vectorstore
 from ..gemini import get_bot_response
+from ..gemini import generate_chat_title
 from ..generate_image import image_generator
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from dotenv import load_dotenv
@@ -208,9 +209,21 @@ def chat_view(request):
 
     query = request.GET.get("text", "").strip()
     model_id = request.GET.get("model", "gpt5-nano")
+    chat_id = request.GET.get("chat_id", None)
+    is_first_message = request.GET.get("is_first_message", "false").lower() == "true"
 
     if not query:
         return JsonResponse({"error": "Empty message"}, status=400)
+    
+    chat_title = None
+    if is_first_message:
+        try:
+            chat_title = generate_chat_title(query)
+            print(f"🎯 Generated title for new chat: {chat_title}")
+        except Exception as e:
+            print(f"⚠️ Title generation failed: {e}")
+            # Fallback title
+            chat_title = query[:30] + "..." if len(query) > 30 else query
 
     # Load vectorstore for RAG
     vectorstore = load_vectorstore()
@@ -238,6 +251,8 @@ def chat_view(request):
     # Stream response - SIMPLIFIED
     def event_stream():
      try:
+        if is_first_message and chat_title:
+            yield f"data: [TITLE]{chat_title}\n\n"
         # Special handling for Gemini 2.5 Flash Image
         if model_id == "gemini-2.5-flash-image":
             print("=== Generating Gemini 2.5 Image ===")
@@ -278,7 +293,7 @@ def chat_view(request):
 
         # Normal text streaming for all other models
         response_text = ""
-        for chunk in get_bot_response(enriched_query, model_id):
+        for chunk in get_bot_response(enriched_query, model_id, chat_id):
             response_text += chunk
         
         tokens = re.findall(r'\S+\s*', response_text)

@@ -5,6 +5,7 @@ from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 import os,re
 from dotenv import load_dotenv
+from uuid import uuid4
 
 # -------------------- Load Environment Variables --------------------
 load_dotenv()
@@ -68,48 +69,97 @@ prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder(variable_name="agent_scratchpad")
 ])
 
-# -------------------- Streaming Bot Response Function --------------------
-def get_bot_response(user_input: str, model_id: str):
-    """
-    Get AI response with proper formatting that works with SSE streaming.
-    Returns the complete formatted response.
-    """
+title_system_prompt = """
+You are a helpful assistant that generates concise, descriptive chat titles based on the user's first message.
+
+Guidelines:
+- Create a title that captures the main topic or intent of the user's message
+- Keep it under 5-6 words maximum
+- Make it clear and descriptive
+- Do not use quotes or special characters
+- If the message is a greeting or unclear, create a generic but relevant title
+- Examples:
+  - User: "Explain quantum computing in simple terms" → "Quantum Computing Explanation"
+  - User: "Help me debug this Python function that calculates fibonacci numbers" → "Python Fibonacci Debugging"
+  - User: "What's the weather in Tokyo?" → "Tokyo Weather Forecast"
+  - User: "Hi, how are you?" → "General Conversation"
+
+Return ONLY the title text, nothing else.
+"""
+
+# -------------------- Title Generation Prompt --------------------
+title_prompt = ChatPromptTemplate.from_messages([
+    ("system", title_system_prompt),
+    ("human", "User message: {user_input}")
+])
+
+def generate_chat_title(user_input: str) -> str:
+    """Generate a chat title from the first user message."""
     try:
-        provider_model = MODEL_MAP.get(model_id, "openai/gpt-5-nano")  
+        provider_model = MODEL_MAP["gemini-flashlite"]  
+        model = init_model(provider_model)
+        
+        # Create a simple chain for title generation
+        chain = title_prompt | model
+        
+        response = chain.invoke({"user_input": user_input})
+        title = response.content.strip()
+        
+        # Clean up the title - remove any quotes or extra spaces
+        title = re.sub(r'^["\']|["\']$', '', title)
+        title = title.strip()
+        
+        # Truncate if too long
+        if len(title) > 40:
+            title = title[:37] + "..."
+            
+        print(f"🎯 Generated chat title: '{title}' from user input: '{user_input}'")
+        return title
+        
+    except Exception as e:
+        print(f"[ERROR] Title generation failed: {str(e)}")
+        # Fallback: use first 30 characters of user input
+        fallback_title = user_input[:30] + "..." if len(user_input) > 30 else user_input
+        return fallback_title
+
+# -------------------- Chat History (per chat_id) --------------------
+
+chat_histories = {}
+
+def get_chat_history(chat_id=None):
+    """Return chat history object for given chat_id. Create one if not exists."""
+    if not chat_id:
+        chat_id = str(uuid4())
+    if chat_id not in chat_histories:
+        chat_histories[chat_id] = InMemoryChatMessageHistory()
+    return chat_id, chat_histories[chat_id]
+
+
+# -------------------- Streaming Bot Response Function --------------------
+def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
+    try:
+        chat_id, chat_history = get_chat_history(chat_id)
+
+        provider_model = MODEL_MAP.get(model_id, "openai/gpt-5-nano")
         model = init_model(provider_model)
 
-        # Create the agent with tools
         agent = create_openai_tools_agent(model, [search_tool], prompt)
         agent_executor = AgentExecutor(agent=agent, tools=[search_tool], verbose=True)
 
-        # Add user message to history
         chat_history.add_user_message(user_input)
 
-        # Let agent decide on action
-        print("=== AGENT EXECUTION START ===")
+        print(f"=== EXECUTING CHAT {chat_id} ===")
         agent_result = agent_executor.invoke({
             "input": user_input,
             "chat_history": chat_history.messages,
             "agent_scratchpad": []
         })
-        print("=== AGENT EXECUTION COMPLETE ===")
 
         final_response = agent_result["output"]
-        
-        print("=== BACKEND DEBUG ===")
-        print("Final response:", repr(final_response))
-        print("Response length:", len(final_response))
-        print("Contains newlines:", final_response.count('\n'))
-        print("=== END DEBUG ===")
-        
-        # Return the complete response as a single chunk
         yield final_response
-        
-        # Save the complete response to chat history
+
         chat_history.add_ai_message(final_response)
-        
+
     except Exception as e:
-        print(f"=== ERROR in get_bot_response ===")
-        print(f"Error: {str(e)}")
-        print(f"=== END ERROR ===")
+        print(f"[ERROR] Chat {chat_id}: {str(e)}")
         yield f"Error: {str(e)}"
