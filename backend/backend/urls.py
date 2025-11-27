@@ -5,7 +5,7 @@ from accounts.api.views import chat_view, upload_document, google_post_login
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('accounts.api.urls')),  
-    path('chat/', chat_view),
+    path("api/chat/stream/", chat_view, name="chat_stream"),
     path('upload_document/', upload_document),
 
     # Google OAuth
