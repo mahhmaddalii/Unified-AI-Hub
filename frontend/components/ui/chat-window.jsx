@@ -4,6 +4,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import Image from "next/image";
 import { Meta, OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 export default function ChatWindow({ 
   chatId, 
@@ -75,6 +79,326 @@ export default function ChatWindow({
     { title: "Creative ideas", prompt: "Generate creative ideas for a new mobile app", icon: "💡" },
     { title: "Summarize content", prompt: "Summarize the key points from this article", icon: "📝" },
   ];
+
+  // Custom components for ReactMarkdown
+  const MarkdownComponents = {
+    // Headers
+    h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{children}</h1>,
+    h2: ({ children }) => <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900">{children}</h2>,
+    h3: ({ children }) => <h3 className="text-lg font-semibold mt-4 mb-2 text-gray-900">{children}</h3>,
+    h4: ({ children }) => <h4 className="text-base font-semibold mt-3 mb-2 text-gray-900">{children}</h4>,
+    
+    // Paragraphs
+    p: ({ children }) => <p className="mb-4 leading-relaxed text-gray-800">{children}</p>,
+    
+    // Lists
+    ul: ({ children }) => <ul className="list-disc ml-6 mb-4 space-y-1 text-gray-800">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal ml-6 mb-4 space-y-1 text-gray-800">{children}</ol>,
+    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+    
+    // Code blocks
+    code: ({ node, inline, className, children, ...props }) => {
+      const match = /language-(\w+)/.exec(className || '');
+      const language = match ? match[1] : '';
+      
+      if (!inline && language) {
+        return (
+          <div className="my-4 rounded-lg overflow-hidden border border-gray-200">
+            <div className="bg-gray-800 text-gray-200 px-4 py-2 text-sm font-mono flex justify-between items-center">
+              <span className="uppercase">{language}</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
+                }}
+                className="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <SyntaxHighlighter
+                style={atomDark}
+                language={language}
+                PreTag="div"
+                className="text-sm !m-0"
+                customStyle={{ 
+                  margin: 0, 
+                  borderRadius: 0,
+                  background: '#1f2937'
+                }}
+                showLineNumbers={true}
+                wrapLongLines={false}
+                {...props}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            </div>
+          </div>
+        );
+      } else if (inline) {
+        return (
+          <code className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
+            {children}
+          </code>
+        );
+      } else {
+        // For code blocks without language specification
+        return (
+          <div className="my-4 rounded-lg overflow-hidden border border-gray-200">
+            <div className="bg-gray-800 text-gray-200 px-4 py-2 text-sm font-mono">
+              Code
+            </div>
+            <div className="overflow-x-auto">
+              <pre className="bg-gray-900 text-gray-100 p-4 text-sm font-mono m-0">
+                <code>{children}</code>
+              </pre>
+            </div>
+          </div>
+        );
+      }
+    },
+    
+    // Blockquotes
+    blockquote: ({ children }) => (
+      <blockquote className="border-l-4 border-purple-500 pl-4 my-4 italic text-gray-600 bg-purple-50 py-2 rounded-r">
+        {children}
+      </blockquote>
+    ),
+    
+    // Tables
+    table: ({ children }) => (
+      <div className="overflow-x-auto my-4 border border-gray-200 rounded-lg">
+        <table className="min-w-full divide-y divide-gray-200">{children}</table>
+      </div>
+    ),
+    thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
+    tbody: ({ children }) => <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>,
+    tr: ({ children }) => <tr>{children}</tr>,
+    th: ({ children }) => <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{children}</th>,
+    td: ({ children }) => <td className="px-4 py-3 text-sm text-gray-800">{children}</td>,
+    
+    // Links
+    a: ({ href, children }) => (
+      <a 
+        href={href} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="text-purple-600 hover:text-purple-800 underline"
+      >
+        {children}
+      </a>
+    ),
+    
+    // Strong/Bold
+    strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+    
+    // Emphasis/Italic
+    em: ({ children }) => <em className="italic text-gray-700">{children}</em>,
+  };
+
+  // Function to render formatted message content
+  // Function to render formatted message content
+const renderMessageContent = useCallback((content) => {
+  if (!content) return null;
+
+  // Custom markdown parser that handles inline code and bold text
+  const parseMarkdown = (text) => {
+    const lines = text.split('\n');
+    const elements = [];
+    let codeBlockIndex = 0;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // Skip empty lines
+      if (line.trim() === '') {
+        elements.push(<br key={`br-${i}`} />);
+        continue;
+      }
+      
+      // Check for headers
+      if (line.startsWith('# ')) {
+        elements.push(<h1 key={`h1-${i}`} className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{parseInlineText(line.substring(2))}</h1>);
+      } else if (line.startsWith('## ')) {
+        elements.push(<h2 key={`h2-${i}`} className="text-xl font-bold mt-5 mb-3 text-gray-900">{parseInlineText(line.substring(3))}</h2>);
+      } else if (line.startsWith('### ')) {
+        elements.push(<h3 key={`h3-${i}`} className="text-lg font-semibold mt-4 mb-2 text-gray-900">{parseInlineText(line.substring(4))}</h3>);
+      } else if (line.startsWith('#### ')) {
+        elements.push(<h4 key={`h4-${i}`} className="text-base font-semibold mt-3 mb-2 text-gray-900">{parseInlineText(line.substring(5))}</h4>);
+      } 
+      // Check for code blocks
+      else if (line.startsWith('```')) {
+        const language = line.substring(3).trim();
+        let codeContent = '';
+        i++;
+        
+        while (i < lines.length && !lines[i].startsWith('```')) {
+          codeContent += lines[i] + '\n';
+          i++;
+        }
+        
+        const currentIndex = codeBlockIndex;
+        codeBlockIndex++;
+        
+        elements.push(
+          <div key={`code-${currentIndex}`} className="my-4 rounded-lg overflow-hidden border border-gray-800 shadow-lg">
+            <div className="bg-gray-900 text-gray-200 px-4 py-3 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-300 font-mono">
+                  {language.toUpperCase() || 'CODE'}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(codeContent.trim());
+                  // Create a temporary state for copied feedback
+                  const btn = document.querySelector(`[data-code-index="${currentIndex}"]`);
+                  if (btn) {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = '<span class="flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>Copied!</span></span>';
+                    setTimeout(() => {
+                      btn.innerHTML = originalText;
+                    }, 2000);
+                  }
+                }}
+                data-code-index={currentIndex}
+                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-md transition-all duration-200"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <div className="relative">
+              <SyntaxHighlighter
+                style={atomDark}
+                language={language.toLowerCase()}
+                PreTag="div"
+                className="text-sm !m-0"
+                customStyle={{ 
+                  margin: 0,
+                  padding: '1.25rem',
+                  background: '#111827',
+                  fontSize: '0.875rem',
+                  lineHeight: '1.5',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+                }}
+                showLineNumbers={true}
+                lineNumberStyle={{
+                  color: '#6B7280',
+                  minWidth: '3em',
+                  paddingRight: '1em',
+                  textAlign: 'right',
+                  userSelect: 'none'
+                }}
+                wrapLines={true}
+                lineProps={{
+                  style: {
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }
+                }}
+              >
+                {codeContent.trim()}
+              </SyntaxHighlighter>
+            </div>
+          </div>
+        );
+      }
+      // Regular text with inline formatting
+      else {
+        elements.push(
+          <div key={`p-${i}`} className="mb-4 leading-relaxed text-gray-800">
+            {parseInlineText(line)}
+          </div>
+        );
+      }
+    }
+    
+    return elements;
+  };
+
+  // Helper function to parse inline formatting (bold, code, etc.)
+  const parseInlineText = (text) => {
+    const parts = [];
+    let lastIndex = 0;
+    
+    // Process bold text (**bold**)
+    const boldRegex = /\*\*([^*]+)\*\*/g;
+    let match;
+    
+    // First collect all matches
+    const matches = [];
+    while ((match = boldRegex.exec(text)) !== null) {
+      matches.push({
+        type: 'bold',
+        start: match.index,
+        end: match.index + match[0].length,
+        content: match[1]
+      });
+    }
+    
+    // Also collect inline code matches (`code`)
+    const codeRegex = /`([^`]+)`/g;
+    while ((match = codeRegex.exec(text)) !== null) {
+      matches.push({
+        type: 'code',
+        start: match.index,
+        end: match.index + match[0].length,
+        content: match[1]
+      });
+    }
+    
+    // Sort matches by start position
+    matches.sort((a, b) => a.start - b.start);
+    
+    // Process text with matches
+    let currentIndex = 0;
+    
+    for (const match of matches) {
+      // Add text before match
+      if (match.start > currentIndex) {
+        parts.push(text.substring(currentIndex, match.start));
+      }
+      
+      // Add the match content
+      if (match.type === 'bold') {
+        parts.push(
+          <strong key={`bold-${match.start}`} className="font-semibold text-gray-900">
+            {match.content}
+          </strong>
+        );
+      } else if (match.type === 'code') {
+        parts.push(
+          <code key={`code-${match.start}`} className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
+            {match.content}
+          </code>
+        );
+      }
+      
+      currentIndex = match.end;
+    }
+    
+    // Add remaining text
+    if (currentIndex < text.length) {
+      parts.push(text.substring(currentIndex));
+    }
+    
+    // If no matches were found, return the original text
+    if (matches.length === 0) {
+      return text;
+    }
+    
+    return parts;
+  };
+  
+  return (
+    <div className="markdown-content">
+      {parseMarkdown(content)}
+    </div>
+  );
+}, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -181,229 +505,247 @@ export default function ChatWindow({
   }, [input, onNewMessage, selectedModel, onSetLoading]);
 
   // Separate function for making the API request
-  const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
-    // Check if the chat is still active before making the request
+  // Separate function for making the API request
+const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
+  // Check if the chat is still active before making the request
+  if (chatId !== latestChatIdRef.current) {
+    console.log("⚠️ Chat changed, aborting API request for old chat:", chatId);
+    if (onSetLoading) onSetLoading(false);
+    return;
+  }
+
+  console.log("🔗 Making API call to:", url);
+
+  // Close any existing stream
+  if (currentStreamRef.current) {
+    currentStreamRef.current.close();
+    currentStreamRef.current = null;
+  }
+
+  const es = new EventSource(url);
+  currentStreamRef.current = es;
+  
+  let receivedFirstMessage = false;
+  let hasImage = false;
+  let assistantMessage = null;
+  let imageUrl = null;
+  let buffer = "";
+  let lastUpdateTime = 0;
+  const UPDATE_INTERVAL = 50;
+  let hasNotifiedParent = false;
+
+  // Increase timeout to 2 minutes for longer responses
+  const timeoutId = setTimeout(() => {
+    if (!receivedFirstMessage && !hasImage) {
+      console.log("⏰ Request timeout for chat:", chatId);
+      es.close();
+      currentStreamRef.current = null;
+      if (onSetLoading) onSetLoading(false);
+      setStatusMsg("Request timeout. The response is taking longer than expected.");
+    }
+  }, 120000); // 2 minutes instead of 30 seconds
+
+  es.onmessage = (event) => {
+    const data = event.data;
+    console.log("📥 Received SSE data for chat:", chatId, data.substring(0, 100));
+    
+    // Check if this message is still relevant for the current chat
     if (chatId !== latestChatIdRef.current) {
-      console.log("⚠️ Chat changed, aborting API request for old chat:", chatId);
+      console.log("🚫 Message not relevant - chat changed, closing stream");
+      es.close();
+      currentStreamRef.current = null;
       if (onSetLoading) onSetLoading(false);
       return;
     }
+    
+    // Reset timeout timer every time we receive data
+    clearTimeout(timeoutId);
 
-    console.log("🔗 Making API call to:", url);
-
-    // Close any existing stream
-    if (currentStreamRef.current) {
-      currentStreamRef.current.close();
-      currentStreamRef.current = null;
+    if (currentStreamRef.current !== es) {
+      console.log("🚫 Stream no longer relevant");
+      es.close();
+      return;
     }
 
-    const es = new EventSource(url);
-    currentStreamRef.current = es;
-    
-    let receivedFirstMessage = false;
-    let hasImage = false;
-    let assistantMessage = null;
-    let imageUrl = null;
-    let buffer = "";
-    let lastUpdateTime = 0;
-    const UPDATE_INTERVAL = 50;
-    let hasNotifiedParent = false;
+    // Handle title updates
+    if (data.startsWith('[TITLE]')) {
+      const title = data.replace('[TITLE]', '');
+      console.log("🏷️ Received chat title:", title);
+      
+      // Notify parent about the title
+      if (onNewMessage) {
+        onNewMessage({
+          id: `title-${Date.now()}`,
+          role: "system",
+          title: title
+        });
+      }
+      return;
+    }
 
-    const timeoutId = setTimeout(() => {
+    if (data === '[DONE]') {
+      console.log("✅ Stream completed for chat:", chatId);
+      es.close();
+      currentStreamRef.current = null;
+      if (onSetLoading) onSetLoading(false);
+      clearTimeout(timeoutId);
+      
+      // Final update with any remaining buffer
+      if (buffer && assistantMessage) {
+        assistantMessage.text += buffer;
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantId 
+            ? { ...msg, text: assistantMessage.text }
+            : msg
+        ));
+        
+        if (!hasNotifiedParent && onNewMessage) {
+          onNewMessage(assistantMessage);
+          hasNotifiedParent = true;
+        }
+      }
+      
+      return;
+    }
+
+    if (data.startsWith('[IMAGE]')) {
+      imageUrl = data.replace('[IMAGE]', '');
+      hasImage = true;
+      
+      if (assistantMessage) {
+        const updatedMessage = { ...assistantMessage, image: imageUrl };
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantId ? updatedMessage : msg
+        ));
+        if (onNewMessage && !hasNotifiedParent) {
+          onNewMessage(updatedMessage);
+          hasNotifiedParent = true;
+        }
+      } else {
+        const imageMsg = {
+          id: assistantId,
+          role: "assistant", 
+          text: buffer || "",
+          image: imageUrl
+        };
+        setMessages(prev => [...prev, imageMsg]);
+        assistantMessage = imageMsg;
+        if (onNewMessage && !hasNotifiedParent) {
+          onNewMessage(imageMsg);
+          hasNotifiedParent = true;
+        }
+      }
+      
+      // Clear loading when image is received
+      if (onSetLoading) onSetLoading(false);
+      clearTimeout(timeoutId);
+      return;
+    }
+
+    if (data.startsWith("[ERROR]")) {
+      console.error("❌ Stream error:", data);
+      es.close();
+      currentStreamRef.current = null;
+      setStatusMsg(data.replace("[ERROR]", ""));
+      if (onSetLoading) onSetLoading(false);
+      clearTimeout(timeoutId);
+      return;
+    }
+
+    const processedData = data.replace(/\\n/g, '\n');
+    buffer += processedData;
+
+    const now = Date.now();
+    
+    if (!receivedFirstMessage) {
+      console.log("🎯 First message chunk received");
+      receivedFirstMessage = true;
+      
+      assistantMessage = {
+        id: assistantId,
+        role: "assistant", 
+        text: buffer
+      };
+      
+      setMessages(prev => [...prev, assistantMessage]);
+      
+      // Clear loading immediately when first message is received
+      if (onSetLoading) onSetLoading(false);
+      
+      buffer = "";
+      lastUpdateTime = now;
+      
+      if (onNewMessage && !hasNotifiedParent) {
+        onNewMessage(assistantMessage);
+        hasNotifiedParent = true;
+      }
+    } else if (now - lastUpdateTime > UPDATE_INTERVAL || buffer.length > 20) {
+      if (assistantMessage) {
+        assistantMessage.text += buffer;
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantId 
+            ? { ...msg, text: assistantMessage.text }
+            : msg
+        ));
+        buffer = "";
+        lastUpdateTime = now;
+      }
+    }
+
+    // Reset timeout after processing each message
+    clearTimeout(timeoutId);
+    setTimeout(() => {
       if (!receivedFirstMessage && !hasImage) {
         console.log("⏰ Request timeout for chat:", chatId);
         es.close();
         currentStreamRef.current = null;
         if (onSetLoading) onSetLoading(false);
-        setStatusMsg("Request timeout. Please try again.");
+        setStatusMsg("Request timeout. The response is taking longer than expected.");
       }
-    }, 30000);
+    }, 120000);
+  };
 
-    es.onmessage = (event) => {
-      const data = event.data;
-      console.log("📥 Received SSE data for chat:", chatId, data.substring(0, 100));
-      
-      // Check if this message is still relevant for the current chat
-      if (chatId !== latestChatIdRef.current) {
-        console.log("🚫 Message not relevant - chat changed, closing stream");
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        return;
-      }
-      
-      clearTimeout(timeoutId);
-
-      if (currentStreamRef.current !== es) {
-        console.log("🚫 Stream no longer relevant");
-        es.close();
-        return;
-      }
-
-      // Handle title updates
-      if (data.startsWith('[TITLE]')) {
-        const title = data.replace('[TITLE]', '');
-        console.log("🏷️ Received chat title:", title);
-        
-        // Notify parent about the title
-        if (onNewMessage) {
-          onNewMessage({
-            id: `title-${Date.now()}`,
-            role: "system",
-            title: title
-          });
-        }
-        return;
-      }
-
-      if (data === '[DONE]') {
-        console.log("✅ Stream completed for chat:", chatId);
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        
-        // Final update with any remaining buffer
-        if (buffer && assistantMessage) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          
-          if (!hasNotifiedParent && onNewMessage) {
-            onNewMessage(assistantMessage);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        return;
-      }
-
-      if (data.startsWith('[IMAGE]')) {
-        imageUrl = data.replace('[IMAGE]', '');
-        hasImage = true;
-        
-        if (assistantMessage) {
-          const updatedMessage = { ...assistantMessage, image: imageUrl };
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId ? updatedMessage : msg
-          ));
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(updatedMessage);
-            hasNotifiedParent = true;
-          }
-        } else {
-          const imageMsg = {
-            id: assistantId,
-            role: "assistant", 
-            text: buffer || "",
-            image: imageUrl
-          };
-          setMessages(prev => [...prev, imageMsg]);
-          assistantMessage = imageMsg;
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(imageMsg);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        // Clear loading when image is received
-        if (onSetLoading) onSetLoading(false);
-        return;
-      }
-
-      if (data.startsWith("[ERROR]")) {
-        console.error("❌ Stream error:", data);
-        es.close();
-        currentStreamRef.current = null;
-        setStatusMsg(data.replace("[ERROR]", ""));
-        if (onSetLoading) onSetLoading(false);
-        return;
-      }
-
-      const processedData = data.replace(/\\n/g, '\n');
-      buffer += processedData;
-
-      const now = Date.now();
-      
-      if (!receivedFirstMessage) {
-        console.log("🎯 First message chunk received");
-        receivedFirstMessage = true;
-        
-        assistantMessage = {
-          id: assistantId,
-          role: "assistant", 
-          text: buffer
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        
-        // Clear loading immediately when first message is received
-        if (onSetLoading) onSetLoading(false);
-        
-        buffer = "";
-        lastUpdateTime = now;
-        
+  es.onerror = (err) => {
+    console.error("🔌 SSE connection error:", err);
+    clearTimeout(timeoutId);
+    
+    // Check if this error is still relevant for the current chat
+    if (chatId !== latestChatIdRef.current) {
+      console.log("🚫 Error not relevant - chat changed");
+      es.close();
+      return;
+    }
+    
+    if (currentStreamRef.current === es) {
+      // Finalize the assistant message if we have one
+      if (assistantMessage && buffer) {
+        assistantMessage.text += buffer;
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantId 
+            ? { ...msg, text: assistantMessage.text }
+            : msg
+        ));
         if (onNewMessage && !hasNotifiedParent) {
           onNewMessage(assistantMessage);
           hasNotifiedParent = true;
         }
-      } else if (now - lastUpdateTime > UPDATE_INTERVAL || buffer.length > 20) {
-        if (assistantMessage) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          buffer = "";
-          lastUpdateTime = now;
-        }
       }
-    };
+      
+      if (!receivedFirstMessage && !hasImage) {
+        if (onSetLoading) onSetLoading(false);
+        setStatusMsg("Connection error. Please try again.");
+      }
+      
+      currentStreamRef.current = null;
+    }
+    
+    es.close();
+  };
 
-    es.onerror = (err) => {
-      console.error("🔌 SSE connection error:", err);
-      clearTimeout(timeoutId);
-      
-      // Check if this error is still relevant for the current chat
-      if (chatId !== latestChatIdRef.current) {
-        console.log("🚫 Error not relevant - chat changed");
-        es.close();
-        return;
-      }
-      
-      if (currentStreamRef.current === es) {
-        // Finalize the assistant message if we have one
-        if (assistantMessage && buffer) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(assistantMessage);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        if (!receivedFirstMessage && !hasImage) {
-          if (onSetLoading) onSetLoading(false);
-          setStatusMsg("Connection error. Please try again.");
-        }
-        
-        currentStreamRef.current = null;
-      }
-      
-      es.close();
-    };
-
-    es.onopen = () => {
-      console.log("🔗 SSE connection opened successfully");
-    };
-  }, [selectedModel, onNewMessage, onSetLoading]);
+  es.onopen = () => {
+    console.log("🔗 SSE connection opened successfully");
+  };
+}, [selectedModel, onNewMessage, onSetLoading]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -544,12 +886,16 @@ export default function ChatWindow({
                     className={`rounded-xl p-3 text-sm ${
                       m.role === "user"
                         ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white"
-                        : "text-gray-800"
+                        : "bg-white text-gray-800"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap leading-relaxed">
-                      {m.text}
-                    </p>
+                    {m.role === "assistant" ? (
+                      renderMessageContent(m.text)
+                    ) : (
+                      <p className="whitespace-pre-wrap leading-relaxed">
+                        {m.text}
+                      </p>
+                    )}
 
                     {m.image && (
                       <div className="mt-3 relative group">
