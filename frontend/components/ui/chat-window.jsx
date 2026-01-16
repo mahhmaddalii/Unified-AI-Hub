@@ -197,208 +197,207 @@ export default function ChatWindow({
   };
 
   // Function to render formatted message content
-  // Function to render formatted message content
-const renderMessageContent = useCallback((content) => {
-  if (!content) return null;
+  const renderMessageContent = useCallback((content) => {
+    if (!content) return null;
 
-  // Custom markdown parser that handles inline code and bold text
-  const parseMarkdown = (text) => {
-    const lines = text.split('\n');
-    const elements = [];
-    let codeBlockIndex = 0;
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    // Custom markdown parser that handles inline code and bold text
+    const parseMarkdown = (text) => {
+      const lines = text.split('\n');
+      const elements = [];
+      let codeBlockIndex = 0;
       
-      // Skip empty lines
-      if (line.trim() === '') {
-        elements.push(<br key={`br-${i}`} />);
-        continue;
-      }
-      
-      // Check for headers
-      if (line.startsWith('# ')) {
-        elements.push(<h1 key={`h1-${i}`} className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{parseInlineText(line.substring(2))}</h1>);
-      } else if (line.startsWith('## ')) {
-        elements.push(<h2 key={`h2-${i}`} className="text-xl font-bold mt-5 mb-3 text-gray-900">{parseInlineText(line.substring(3))}</h2>);
-      } else if (line.startsWith('### ')) {
-        elements.push(<h3 key={`h3-${i}`} className="text-lg font-semibold mt-4 mb-2 text-gray-900">{parseInlineText(line.substring(4))}</h3>);
-      } else if (line.startsWith('#### ')) {
-        elements.push(<h4 key={`h4-${i}`} className="text-base font-semibold mt-3 mb-2 text-gray-900">{parseInlineText(line.substring(5))}</h4>);
-      } 
-      // Check for code blocks
-      else if (line.startsWith('```')) {
-        const language = line.substring(3).trim();
-        let codeContent = '';
-        i++;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         
-        while (i < lines.length && !lines[i].startsWith('```')) {
-          codeContent += lines[i] + '\n';
-          i++;
+        // Skip empty lines
+        if (line.trim() === '') {
+          elements.push(<br key={`br-${i}`} />);
+          continue;
         }
         
-        const currentIndex = codeBlockIndex;
-        codeBlockIndex++;
-        
-        elements.push(
-          <div key={`code-${currentIndex}`} className="my-4 rounded-lg overflow-hidden border border-gray-800 shadow-lg">
-            <div className="bg-gray-900 text-gray-200 px-4 py-3 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-300 font-mono">
-                  {language.toUpperCase() || 'CODE'}
-                </span>
+        // Check for headers
+        if (line.startsWith('# ')) {
+          elements.push(<h1 key={`h1-${i}`} className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{parseInlineText(line.substring(2))}</h1>);
+        } else if (line.startsWith('## ')) {
+          elements.push(<h2 key={`h2-${i}`} className="text-xl font-bold mt-5 mb-3 text-gray-900">{parseInlineText(line.substring(3))}</h2>);
+        } else if (line.startsWith('### ')) {
+          elements.push(<h3 key={`h3-${i}`} className="text-lg font-semibold mt-4 mb-2 text-gray-900">{parseInlineText(line.substring(4))}</h3>);
+        } else if (line.startsWith('#### ')) {
+          elements.push(<h4 key={`h4-${i}`} className="text-base font-semibold mt-3 mb-2 text-gray-900">{parseInlineText(line.substring(5))}</h4>);
+        } 
+        // Check for code blocks
+        else if (line.startsWith('```')) {
+          const language = line.substring(3).trim();
+          let codeContent = '';
+          i++;
+          
+          while (i < lines.length && !lines[i].startsWith('```')) {
+            codeContent += lines[i] + '\n';
+            i++;
+          }
+          
+          const currentIndex = codeBlockIndex;
+          codeBlockIndex++;
+          
+          elements.push(
+            <div key={`code-${currentIndex}`} className="my-4 rounded-lg overflow-hidden border border-gray-800 shadow-lg">
+              <div className="bg-gray-900 text-gray-200 px-4 py-3 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-300 font-mono">
+                    {language.toUpperCase() || 'CODE'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(codeContent.trim());
+                    // Create a temporary state for copied feedback
+                    const btn = document.querySelector(`[data-code-index="${currentIndex}"]`);
+                    if (btn) {
+                      const originalText = btn.innerHTML;
+                      btn.innerHTML = '<span class="flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>Copied!</span></span>';
+                      setTimeout(() => {
+                        btn.innerHTML = originalText;
+                      }, 2000);
+                    }
+                  }}
+                  data-code-index={currentIndex}
+                  className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-md transition-all duration-200"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <span>Copy</span>
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(codeContent.trim());
-                  // Create a temporary state for copied feedback
-                  const btn = document.querySelector(`[data-code-index="${currentIndex}"]`);
-                  if (btn) {
-                    const originalText = btn.innerHTML;
-                    btn.innerHTML = '<span class="flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>Copied!</span></span>';
-                    setTimeout(() => {
-                      btn.innerHTML = originalText;
-                    }, 2000);
-                  }
-                }}
-                data-code-index={currentIndex}
-                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-md transition-all duration-200"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-                <span>Copy</span>
-              </button>
+              <div className="relative">
+                <SyntaxHighlighter
+                  style={atomDark}
+                  language={language.toLowerCase()}
+                  PreTag="div"
+                  className="text-sm !m-0"
+                  customStyle={{ 
+                    margin: 0,
+                    padding: '1.25rem',
+                    background: '#111827',
+                    fontSize: '0.875rem',
+                    lineHeight: '1.5',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+                  }}
+                  showLineNumbers={true}
+                  lineNumberStyle={{
+                    color: '#6B7280',
+                    minWidth: '3em',
+                    paddingRight: '1em',
+                    textAlign: 'right',
+                    userSelect: 'none'
+                  }}
+                  wrapLines={true}
+                  lineProps={{
+                    style: {
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word'
+                    }
+                  }}
+                >
+                  {codeContent.trim()}
+                </SyntaxHighlighter>
+              </div>
             </div>
-            <div className="relative">
-              <SyntaxHighlighter
-                style={atomDark}
-                language={language.toLowerCase()}
-                PreTag="div"
-                className="text-sm !m-0"
-                customStyle={{ 
-                  margin: 0,
-                  padding: '1.25rem',
-                  background: '#111827',
-                  fontSize: '0.875rem',
-                  lineHeight: '1.5',
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
-                }}
-                showLineNumbers={true}
-                lineNumberStyle={{
-                  color: '#6B7280',
-                  minWidth: '3em',
-                  paddingRight: '1em',
-                  textAlign: 'right',
-                  userSelect: 'none'
-                }}
-                wrapLines={true}
-                lineProps={{
-                  style: {
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word'
-                  }
-                }}
-              >
-                {codeContent.trim()}
-              </SyntaxHighlighter>
+          );
+        }
+        // Regular text with inline formatting
+        else {
+          elements.push(
+            <div key={`p-${i}`} className="mb-4 leading-relaxed text-gray-800">
+              {parseInlineText(line)}
             </div>
-          </div>
-        );
+          );
+        }
       }
-      // Regular text with inline formatting
-      else {
-        elements.push(
-          <div key={`p-${i}`} className="mb-4 leading-relaxed text-gray-800">
-            {parseInlineText(line)}
-          </div>
-        );
-      }
-    }
-    
-    return elements;
-  };
+      
+      return elements;
+    };
 
-  // Helper function to parse inline formatting (bold, code, etc.)
-  const parseInlineText = (text) => {
-    const parts = [];
-    let lastIndex = 0;
-    
-    // Process bold text (**bold**)
-    const boldRegex = /\*\*([^*]+)\*\*/g;
-    let match;
-    
-    // First collect all matches
-    const matches = [];
-    while ((match = boldRegex.exec(text)) !== null) {
-      matches.push({
-        type: 'bold',
-        start: match.index,
-        end: match.index + match[0].length,
-        content: match[1]
-      });
-    }
-    
-    // Also collect inline code matches (`code`)
-    const codeRegex = /`([^`]+)`/g;
-    while ((match = codeRegex.exec(text)) !== null) {
-      matches.push({
-        type: 'code',
-        start: match.index,
-        end: match.index + match[0].length,
-        content: match[1]
-      });
-    }
-    
-    // Sort matches by start position
-    matches.sort((a, b) => a.start - b.start);
-    
-    // Process text with matches
-    let currentIndex = 0;
-    
-    for (const match of matches) {
-      // Add text before match
-      if (match.start > currentIndex) {
-        parts.push(text.substring(currentIndex, match.start));
+    // Helper function to parse inline formatting (bold, code, etc.)
+    const parseInlineText = (text) => {
+      const parts = [];
+      let lastIndex = 0;
+      
+      // Process bold text (**bold**)
+      const boldRegex = /\*\*([^*]+)\*\*/g;
+      let match;
+      
+      // First collect all matches
+      const matches = [];
+      while ((match = boldRegex.exec(text)) !== null) {
+        matches.push({
+          type: 'bold',
+          start: match.index,
+          end: match.index + match[0].length,
+          content: match[1]
+        });
       }
       
-      // Add the match content
-      if (match.type === 'bold') {
-        parts.push(
-          <strong key={`bold-${match.start}`} className="font-semibold text-gray-900">
-            {match.content}
-          </strong>
-        );
-      } else if (match.type === 'code') {
-        parts.push(
-          <code key={`code-${match.start}`} className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
-            {match.content}
-          </code>
-        );
+      // Also collect inline code matches (`code`)
+      const codeRegex = /`([^`]+)`/g;
+      while ((match = codeRegex.exec(text)) !== null) {
+        matches.push({
+          type: 'code',
+          start: match.index,
+          end: match.index + match[0].length,
+          content: match[1]
+        });
       }
       
-      currentIndex = match.end;
-    }
+      // Sort matches by start position
+      matches.sort((a, b) => a.start - b.start);
+      
+      // Process text with matches
+      let currentIndex = 0;
+      
+      for (const match of matches) {
+        // Add text before match
+        if (match.start > currentIndex) {
+          parts.push(text.substring(currentIndex, match.start));
+        }
+        
+        // Add the match content
+        if (match.type === 'bold') {
+          parts.push(
+            <strong key={`bold-${match.start}`} className="font-semibold text-gray-900">
+              {match.content}
+            </strong>
+          );
+        } else if (match.type === 'code') {
+          parts.push(
+            <code key={`code-${match.start}`} className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
+              {match.content}
+            </code>
+          );
+        }
+        
+        currentIndex = match.end;
+      }
+      
+      // Add remaining text
+      if (currentIndex < text.length) {
+        parts.push(text.substring(currentIndex));
+      }
+      
+      // If no matches were found, return the original text
+      if (matches.length === 0) {
+        return text;
+      }
+      
+      return parts;
+    };
     
-    // Add remaining text
-    if (currentIndex < text.length) {
-      parts.push(text.substring(currentIndex));
-    }
-    
-    // If no matches were found, return the original text
-    if (matches.length === 0) {
-      return text;
-    }
-    
-    return parts;
-  };
-  
-  return (
-    <div className="markdown-content">
-      {parseMarkdown(content)}
-    </div>
-  );
-}, []);
+    return (
+      <div className="markdown-content">
+        {parseMarkdown(content)}
+      </div>
+    );
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -438,16 +437,54 @@ const renderMessageContent = useCallback((content) => {
 
   const showWelcomeScreen = !hasActiveChat || messages.length === 0;
 
-  const sendMessage = useCallback(() => {
-    if (!input.trim()) return;
+  const uploadFilesIfAny = async (chatId) => {
+    if (attachedFiles.length === 0) return;
+
+    try {
+      console.log("📤 Uploading files for chat:", chatId);
+      console.log("📁 Files to upload:", attachedFiles);
+
+      for (const file of attachedFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("chat_id", chatId);
+
+        const res = await fetch(
+          "http://127.0.0.1:8000/api/chat/upload-document/",
+          {
+            method: "POST",
+            body: formData,
+            credentials: "include",
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error(`Upload failed: ${res.status}`);
+        }
+      }
+
+    } catch (err) {
+      console.error("❌ File upload error:", err);
+      setStatusMsg("File upload failed, continuing without document.");
+    }
+  };
+
+  const sendMessage = useCallback(async () => {
+    // Allow sending messages with only files (no text)
+    if (!input.trim() && attachedFiles.length === 0) return;
 
     const generateUniqueId = () =>
       `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
+    // Create a user message with files attached
     const userMsg = {
       id: generateUniqueId(),
       role: "user",
       text: input.trim(),
+      files: attachedFiles.map(file => ({
+        name: file.name,
+        size: file.size,
+      }))
     };
 
     // Generate and store assistant ID in ref
@@ -455,22 +492,25 @@ const renderMessageContent = useCallback((content) => {
 
     console.log("🚀 sendMessage called with:", {
       input: input.trim(),
+      hasFiles: attachedFiles.length > 0,
       hasActiveChat: !!latestChatIdRef.current,
       currentChatId: latestChatIdRef.current
     });
 
-    console.log("👤 Sending user message, latestChatId:", latestChatIdRef.current);
-    console.log("🤖 Generated assistant ID:", currentAssistantIdRef.current);
+    console.log("👤 Sending user message with files:", userMsg.files);
 
     // Update local state
     setMessages(prev => [...prev, userMsg]);
+    
+    // Store current files before clearing
+    const currentFiles = [...attachedFiles];
     
     // Notify parent about USER message and get the chatId
     let currentChatId = latestChatIdRef.current;
     const isFirstMessage = !currentChatId; // Check if this is the first message
     
     if (onNewMessage) {
-      console.log("📨 Calling onNewMessage with user message");
+      console.log("📨 Calling onNewMessage with user message and files");
       const result = onNewMessage(userMsg);
       console.log("🆔 Parent returned:", result);
       
@@ -482,219 +522,72 @@ const renderMessageContent = useCallback((content) => {
       }
     }
     
+    // Clear input and attached files
     setInput("");
+    setAttachedFiles([]);
     setStatusMsg("");
 
     // Use the latest chatId after parent has processed the message
     console.log("🌐 Final chatId for API call:", currentChatId);
     
-    // Add is_first_message parameter to the API URL
-    const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
-      userMsg.text
-    )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
+    // Upload files BEFORE streaming message
+    if (currentFiles.length > 0) {
+      await uploadFilesIfAny(currentChatId);
+    }
+    
+    // Only make API call if there's text or this is the first message
+    if (input.trim() || isFirstMessage) {
+      // Add is_first_message parameter to the API URL
+      const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
+        userMsg.text || "[User sent files]"
+      )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
+
+      console.log("🔗 Making API call to:", url);
+
+      // Set loading state
+      if (onSetLoading) onSetLoading(true);
+
+      // Add a small delay to ensure the chat is properly created before making the API call
+      setTimeout(() => {
+        makeAPIRequest(userMsg.text || "[User sent files]", currentChatId, currentAssistantIdRef.current, url);
+      }, 100);
+    } else {
+      // If no text but we have files, just update loading state
+      if (onSetLoading) onSetLoading(false);
+    }
+  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading]);
+
+  // Separate function for making the API request
+  const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
+    // Check if the chat is still active before making the request
+    if (chatId !== latestChatIdRef.current) {
+      console.log("⚠️ Chat changed, aborting API request for old chat:", chatId);
+      if (onSetLoading) onSetLoading(false);
+      return;
+    }
 
     console.log("🔗 Making API call to:", url);
 
-    // Set loading state
-    if (onSetLoading) onSetLoading(true);
-
-    // Add a small delay to ensure the chat is properly created before making the API call
-    setTimeout(() => {
-      makeAPIRequest(userMsg.text, currentChatId, currentAssistantIdRef.current, url);
-    }, 100);
-  }, [input, onNewMessage, selectedModel, onSetLoading]);
-
-  // Separate function for making the API request
-  // Separate function for making the API request
-const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
-  // Check if the chat is still active before making the request
-  if (chatId !== latestChatIdRef.current) {
-    console.log("⚠️ Chat changed, aborting API request for old chat:", chatId);
-    if (onSetLoading) onSetLoading(false);
-    return;
-  }
-
-  console.log("🔗 Making API call to:", url);
-
-  // Close any existing stream
-  if (currentStreamRef.current) {
-    currentStreamRef.current.close();
-    currentStreamRef.current = null;
-  }
-
-  const es = new EventSource(url);
-  currentStreamRef.current = es;
-  
-  let receivedFirstMessage = false;
-  let hasImage = false;
-  let assistantMessage = null;
-  let imageUrl = null;
-  let buffer = "";
-  let lastUpdateTime = 0;
-  const UPDATE_INTERVAL = 50;
-  let hasNotifiedParent = false;
-
-  // Increase timeout to 2 minutes for longer responses
-  const timeoutId = setTimeout(() => {
-    if (!receivedFirstMessage && !hasImage) {
-      console.log("⏰ Request timeout for chat:", chatId);
-      es.close();
+    // Close any existing stream
+    if (currentStreamRef.current) {
+      currentStreamRef.current.close();
       currentStreamRef.current = null;
-      if (onSetLoading) onSetLoading(false);
-      setStatusMsg("Request timeout. The response is taking longer than expected.");
     }
-  }, 120000); // 2 minutes instead of 30 seconds
 
-  es.onmessage = (event) => {
-    const data = event.data;
-    console.log("📥 Received SSE data for chat:", chatId, data.substring(0, 100));
+    const es = new EventSource(url);
+    currentStreamRef.current = es;
     
-    // Check if this message is still relevant for the current chat
-    if (chatId !== latestChatIdRef.current) {
-      console.log("🚫 Message not relevant - chat changed, closing stream");
-      es.close();
-      currentStreamRef.current = null;
-      if (onSetLoading) onSetLoading(false);
-      return;
-    }
-    
-    // Reset timeout timer every time we receive data
-    clearTimeout(timeoutId);
+    let receivedFirstMessage = false;
+    let hasImage = false;
+    let assistantMessage = null;
+    let imageUrl = null;
+    let buffer = "";
+    let lastUpdateTime = 0;
+    const UPDATE_INTERVAL = 50;
+    let hasNotifiedParent = false;
 
-    if (currentStreamRef.current !== es) {
-      console.log("🚫 Stream no longer relevant");
-      es.close();
-      return;
-    }
-
-    // Handle title updates
-    if (data.startsWith('[TITLE]')) {
-      const title = data.replace('[TITLE]', '');
-      console.log("🏷️ Received chat title:", title);
-      
-      // Notify parent about the title
-      if (onNewMessage) {
-        onNewMessage({
-          id: `title-${Date.now()}`,
-          role: "system",
-          title: title
-        });
-      }
-      return;
-    }
-
-    if (data === '[DONE]') {
-      console.log("✅ Stream completed for chat:", chatId);
-      es.close();
-      currentStreamRef.current = null;
-      if (onSetLoading) onSetLoading(false);
-      clearTimeout(timeoutId);
-      
-      // Final update with any remaining buffer
-      if (buffer && assistantMessage) {
-        assistantMessage.text += buffer;
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantId 
-            ? { ...msg, text: assistantMessage.text }
-            : msg
-        ));
-        
-        if (!hasNotifiedParent && onNewMessage) {
-          onNewMessage(assistantMessage);
-          hasNotifiedParent = true;
-        }
-      }
-      
-      return;
-    }
-
-    if (data.startsWith('[IMAGE]')) {
-      imageUrl = data.replace('[IMAGE]', '');
-      hasImage = true;
-      
-      if (assistantMessage) {
-        const updatedMessage = { ...assistantMessage, image: imageUrl };
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantId ? updatedMessage : msg
-        ));
-        if (onNewMessage && !hasNotifiedParent) {
-          onNewMessage(updatedMessage);
-          hasNotifiedParent = true;
-        }
-      } else {
-        const imageMsg = {
-          id: assistantId,
-          role: "assistant", 
-          text: buffer || "",
-          image: imageUrl
-        };
-        setMessages(prev => [...prev, imageMsg]);
-        assistantMessage = imageMsg;
-        if (onNewMessage && !hasNotifiedParent) {
-          onNewMessage(imageMsg);
-          hasNotifiedParent = true;
-        }
-      }
-      
-      // Clear loading when image is received
-      if (onSetLoading) onSetLoading(false);
-      clearTimeout(timeoutId);
-      return;
-    }
-
-    if (data.startsWith("[ERROR]")) {
-      console.error("❌ Stream error:", data);
-      es.close();
-      currentStreamRef.current = null;
-      setStatusMsg(data.replace("[ERROR]", ""));
-      if (onSetLoading) onSetLoading(false);
-      clearTimeout(timeoutId);
-      return;
-    }
-
-    const processedData = data.replace(/\\n/g, '\n');
-    buffer += processedData;
-
-    const now = Date.now();
-    
-    if (!receivedFirstMessage) {
-      console.log("🎯 First message chunk received");
-      receivedFirstMessage = true;
-      
-      assistantMessage = {
-        id: assistantId,
-        role: "assistant", 
-        text: buffer
-      };
-      
-      setMessages(prev => [...prev, assistantMessage]);
-      
-      // Clear loading immediately when first message is received
-      if (onSetLoading) onSetLoading(false);
-      
-      buffer = "";
-      lastUpdateTime = now;
-      
-      if (onNewMessage && !hasNotifiedParent) {
-        onNewMessage(assistantMessage);
-        hasNotifiedParent = true;
-      }
-    } else if (now - lastUpdateTime > UPDATE_INTERVAL || buffer.length > 20) {
-      if (assistantMessage) {
-        assistantMessage.text += buffer;
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantId 
-            ? { ...msg, text: assistantMessage.text }
-            : msg
-        ));
-        buffer = "";
-        lastUpdateTime = now;
-      }
-    }
-
-    // Reset timeout after processing each message
-    clearTimeout(timeoutId);
-    setTimeout(() => {
+    // Increase timeout to 2 minutes for longer responses
+    const timeoutId = setTimeout(() => {
       if (!receivedFirstMessage && !hasImage) {
         console.log("⏰ Request timeout for chat:", chatId);
         es.close();
@@ -702,50 +595,209 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
         if (onSetLoading) onSetLoading(false);
         setStatusMsg("Request timeout. The response is taking longer than expected.");
       }
-    }, 120000);
-  };
+    }, 120000); // 2 minutes instead of 30 seconds
 
-  es.onerror = (err) => {
-    console.error("🔌 SSE connection error:", err);
-    clearTimeout(timeoutId);
-    
-    // Check if this error is still relevant for the current chat
-    if (chatId !== latestChatIdRef.current) {
-      console.log("🚫 Error not relevant - chat changed");
-      es.close();
-      return;
-    }
-    
-    if (currentStreamRef.current === es) {
-      // Finalize the assistant message if we have one
-      if (assistantMessage && buffer) {
-        assistantMessage.text += buffer;
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantId 
-            ? { ...msg, text: assistantMessage.text }
-            : msg
-        ));
+    es.onmessage = (event) => {
+      const data = event.data;
+      console.log("📥 Received SSE data for chat:", chatId, data.substring(0, 100));
+      
+      // Check if this message is still relevant for the current chat
+      if (chatId !== latestChatIdRef.current) {
+        console.log("🚫 Message not relevant - chat changed, closing stream");
+        es.close();
+        currentStreamRef.current = null;
+        if (onSetLoading) onSetLoading(false);
+        return;
+      }
+      
+      // Reset timeout timer every time we receive data
+      clearTimeout(timeoutId);
+
+      if (currentStreamRef.current !== es) {
+        console.log("🚫 Stream no longer relevant");
+        es.close();
+        return;
+      }
+
+      // Handle title updates
+      if (data.startsWith('[TITLE]')) {
+        const title = data.replace('[TITLE]', '');
+        console.log("🏷️ Received chat title:", title);
+        
+        // Notify parent about the title
+        if (onNewMessage) {
+          onNewMessage({
+            id: `title-${Date.now()}`,
+            role: "system",
+            title: title
+          });
+        }
+        return;
+      }
+
+      if (data === '[DONE]') {
+        console.log("✅ Stream completed for chat:", chatId);
+        es.close();
+        currentStreamRef.current = null;
+        if (onSetLoading) onSetLoading(false);
+        clearTimeout(timeoutId);
+        
+        // Final update with any remaining buffer
+        if (buffer && assistantMessage) {
+          assistantMessage.text += buffer;
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, text: assistantMessage.text }
+              : msg
+          ));
+          
+          if (!hasNotifiedParent && onNewMessage) {
+            onNewMessage(assistantMessage);
+            hasNotifiedParent = true;
+          }
+        }
+        
+        return;
+      }
+
+      if (data.startsWith('[IMAGE]')) {
+        imageUrl = data.replace('[IMAGE]', '');
+        hasImage = true;
+        
+        if (assistantMessage) {
+          const updatedMessage = { ...assistantMessage, image: imageUrl };
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId ? updatedMessage : msg
+          ));
+          if (onNewMessage && !hasNotifiedParent) {
+            onNewMessage(updatedMessage);
+            hasNotifiedParent = true;
+          }
+        } else {
+          const imageMsg = {
+            id: assistantId,
+            role: "assistant", 
+            text: buffer || "",
+            image: imageUrl
+          };
+          setMessages(prev => [...prev, imageMsg]);
+          assistantMessage = imageMsg;
+          if (onNewMessage && !hasNotifiedParent) {
+            onNewMessage(imageMsg);
+            hasNotifiedParent = true;
+          }
+        }
+        
+        // Clear loading when image is received
+        if (onSetLoading) onSetLoading(false);
+        clearTimeout(timeoutId);
+        return;
+      }
+
+      if (data.startsWith("[ERROR]")) {
+        console.error("❌ Stream error:", data);
+        es.close();
+        currentStreamRef.current = null;
+        setStatusMsg(data.replace("[ERROR]", ""));
+        if (onSetLoading) onSetLoading(false);
+        clearTimeout(timeoutId);
+        return;
+      }
+
+      const processedData = data.replace(/\\n/g, '\n');
+      buffer += processedData;
+
+      const now = Date.now();
+      
+      if (!receivedFirstMessage) {
+        console.log("🎯 First message chunk received");
+        receivedFirstMessage = true;
+        
+        assistantMessage = {
+          id: assistantId,
+          role: "assistant", 
+          text: buffer
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+        
+        // Clear loading immediately when first message is received
+        if (onSetLoading) onSetLoading(false);
+        
+        buffer = "";
+        lastUpdateTime = now;
+        
         if (onNewMessage && !hasNotifiedParent) {
           onNewMessage(assistantMessage);
           hasNotifiedParent = true;
         }
+      } else if (now - lastUpdateTime > UPDATE_INTERVAL || buffer.length > 20) {
+        if (assistantMessage) {
+          assistantMessage.text += buffer;
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, text: assistantMessage.text }
+              : msg
+          ));
+          buffer = "";
+          lastUpdateTime = now;
+        }
       }
-      
-      if (!receivedFirstMessage && !hasImage) {
-        if (onSetLoading) onSetLoading(false);
-        setStatusMsg("Connection error. Please try again.");
-      }
-      
-      currentStreamRef.current = null;
-    }
-    
-    es.close();
-  };
 
-  es.onopen = () => {
-    console.log("🔗 SSE connection opened successfully");
-  };
-}, [selectedModel, onNewMessage, onSetLoading]);
+      // Reset timeout after processing each message
+      clearTimeout(timeoutId);
+      setTimeout(() => {
+        if (!receivedFirstMessage && !hasImage) {
+          console.log("⏰ Request timeout for chat:", chatId);
+          es.close();
+          currentStreamRef.current = null;
+          if (onSetLoading) onSetLoading(false);
+          setStatusMsg("Request timeout. The response is taking longer than expected.");
+        }
+      }, 120000);
+    };
+
+    es.onerror = (err) => {
+      console.error("🔌 SSE connection error:", err);
+      clearTimeout(timeoutId);
+      
+      // Check if this error is still relevant for the current chat
+      if (chatId !== latestChatIdRef.current) {
+        console.log("🚫 Error not relevant - chat changed");
+        es.close();
+        return;
+      }
+      
+      if (currentStreamRef.current === es) {
+        // Finalize the assistant message if we have one
+        if (assistantMessage && buffer) {
+          assistantMessage.text += buffer;
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, text: assistantMessage.text }
+              : msg
+          ));
+          if (onNewMessage && !hasNotifiedParent) {
+            onNewMessage(assistantMessage);
+            hasNotifiedParent = true;
+          }
+        }
+        
+        if (!receivedFirstMessage && !hasImage) {
+          if (onSetLoading) onSetLoading(false);
+          setStatusMsg("Connection error. Please try again.");
+        }
+        
+        currentStreamRef.current = null;
+      }
+      
+      es.close();
+    };
+
+    es.onopen = () => {
+      console.log("🔗 SSE connection opened successfully");
+    };
+  }, [selectedModel, onNewMessage, onSetLoading]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -795,6 +847,15 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
   const getCurrentModel = useCallback(() => {
     return aiModels.find(model => model.id === selectedModel);
   }, [selectedModel]);
+
+  // Function to format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   return (
     <div className="flex flex-col h-full w-full bg-white">
@@ -889,12 +950,56 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
                         : "bg-white text-gray-800"
                     }`}
                   >
-                    {m.role === "assistant" ? (
-                      renderMessageContent(m.text)
-                    ) : (
-                      <p className="whitespace-pre-wrap leading-relaxed">
-                        {m.text}
-                      </p>
+                    {/* Message text */}
+                    {m.text && (
+                      m.role === "assistant" ? (
+                        renderMessageContent(m.text)
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed">
+                          {m.text}
+                        </p>
+                      )
+                    )}
+
+                    {/* Attached files */}
+                    {m.files && m.files.length > 0 && (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="text-xs opacity-80 mb-1">
+                          📎 Attached files:
+                        </div>
+                        {m.files.map((file, index) => (
+                          <div
+                            key={index}
+                            className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${
+                              m.role === "user"
+                                ? "bg-white/20"
+                                : "bg-gray-100"
+                            }`}
+                          >
+                            <svg 
+                              className="w-4 h-4 flex-shrink-0" 
+                              fill="none" 
+                              stroke="currentColor" 
+                              viewBox="0 0 24 24"
+                            >
+                              <path 
+                                strokeLinecap="round" 
+                                strokeLinejoin="round" 
+                                strokeWidth={2} 
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                              />
+                            </svg>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-xs font-medium">
+                                {file.name}
+                              </div>
+                              <div className="text-xs opacity-70">
+                                {formatFileSize(file.size)}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
 
                     {m.image && (
@@ -940,19 +1045,6 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
                             />
                           </svg>
                         </button>
-                      </div>
-                    )}
-
-                    {m.files && m.files.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {m.files.map((file, index) => (
-                          <div
-                            key={index}
-                            className="flex items-center text-xs bg-white/20 rounded px-2 py-1"
-                          >
-                            <span className="truncate">{file.name}</span>
-                          </div>
-                        ))}
                       </div>
                     )}
                   </div>
@@ -1002,7 +1094,7 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
         </div>
       )}
 
-      {/* Show attached files */}
+      {/* Show attached files BEFORE sending */}
       {attachedFiles.length > 0 && (
         <div className="px-3 sm:px-4 pb-2">
           <div className="max-w-4xl mx-auto">
@@ -1010,14 +1102,27 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
               {attachedFiles.map((file, index) => (
                 <div
                   key={index}
-                  className="flex items-center bg-gray-100 rounded-lg px-2 sm:px-3 py-1 text-xs"
+                  className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs transition-colors group"
                 >
+                  <svg 
+                    className="w-3 h-3 mr-1.5 text-gray-500" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      strokeWidth={2} 
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                    />
+                  </svg>
                   <span className="truncate max-w-[80px] sm:max-w-[120px]">
                     {file.name}
                   </span>
                   <button
                     onClick={() => removeFile(index)}
-                    className="ml-1 sm:ml-2 text-gray-500 hover:text-red-500 p-0.5"
+                    className="ml-1.5 sm:ml-2 text-gray-500 hover:text-red-500 p-0.5 rounded-full hover:bg-red-50 transition-colors"
                   >
                     ×
                   </button>
@@ -1032,8 +1137,8 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
       <div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative">
         <div
           className={`max-w-3xl mx-auto rounded-xl p-2 sm:p-2 transition-all duration-200 ${
-            input ? "ring-1 sm:ring-2 ring-purple-300" : ""
-          } ${input ? "bg-purple-50" : "bg-gray-100"}`}
+            input || attachedFiles.length > 0 ? "ring-1 sm:ring-2 ring-purple-300" : ""
+          } ${input || attachedFiles.length > 0 ? "bg-purple-50" : "bg-gray-100"}`}
         >
           <div className="flex items-end gap-1.5 sm:gap-2 mb-2 sm:mb-3">
             <textarea
@@ -1044,7 +1149,7 @@ const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
               className="flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none "
               placeholder="Message AI Assistant..."
               rows="1"
-              required={attachedFiles.length === 0}
+              required={false} // Not required since files can be sent without text
               disabled={isLoading}
             />
 

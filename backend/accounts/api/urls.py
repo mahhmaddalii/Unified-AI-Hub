@@ -9,4 +9,7 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('google/post-login/', views.google_post_login, name='google_post_login'),
     path("accounts/", include("allauth.urls")),
+
+    # Chat
+    path('chat/', include('accounts.api.chat.urls')),
 ]
