@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
-import { API_URL, setTokens } from "../../utils/auth.js";
+import { API_URL, setTokens } from "../../utils/auth";
 
 export default function LoginForm() {
   const router = useRouter();

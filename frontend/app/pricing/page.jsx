@@ -1,6 +1,6 @@
 "use client";
 
-import PricingPlans from "../../components/ui/pricing-plans";
+import PricingPlans from "../../components/home/pricing-plans";
 
 export default function PricingPage() {
   return (

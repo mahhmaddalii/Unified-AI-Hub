@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import Navbar from "../ui/chat-navbar";
+import Navbar from "../chat/chat-navbar";
 
 export default function PricingPage() {
   const [isYearly, setIsYearly] = useState(false);
