@@ -80,6 +80,35 @@ export default function ChatWindow({
     { title: "Summarize content", prompt: "Summarize the key points from this article", icon: "📝" },
   ];
 
+  // Function to format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Function to get file type
+  const getFileType = (filename) => {
+    const extension = filename.split('.').pop().toLowerCase();
+    
+    // Only the file types you want: txt, pdf, doc/docx, csv
+    const fileTypes = {
+      // Text files
+      'txt': 'Text',
+      // PDF files
+      'pdf': 'PDF',
+      // Word documents
+      'doc': 'Word',
+      'docx': 'Word',
+      // CSV files
+      'csv': 'CSV'
+    };
+    
+    return fileTypes[extension] || 'File';
+  };
+
   // Custom components for ReactMarkdown
   const MarkdownComponents = {
     // Headers
@@ -484,6 +513,7 @@ export default function ChatWindow({
       files: attachedFiles.map(file => ({
         name: file.name,
         size: file.size,
+        type: getFileType(file.name) // Add file type
       }))
     };
 
@@ -848,15 +878,6 @@ export default function ChatWindow({
     return aiModels.find(model => model.id === selectedModel);
   }, [selectedModel]);
 
-  // Function to format file size
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
   return (
     <div className="flex flex-col h-full w-full bg-white">
       {/* Messages Container */}
@@ -913,134 +934,159 @@ export default function ChatWindow({
         ) : (
           // Chat messages
           <div className="space-y-3 max-w-3xl mx-auto pt-2">
-  {messages.map((m) => (
-    <div
-      key={m.id}
-      className={`flex ${
-        m.role === "user" ? "justify-end" : "justify-start"
-      }`}
-    >
-      <div
-        className={`${m.role === "user" ? "max-w-[90%] sm:max-w-[85%]" : "max-w-[90%] sm:max-w-[85%]"}`}
-      >
-        {/* Message bubble */}
-        <div className="relative overflow-visible">
-          <div
-            className={`rounded-3xl p-4 text-sm ${
-              m.role === "user"
-                ? "bg-purple-600 text-white"
-                : "bg-white text-gray-800"
-            }`}
-          >
-            <p className="whitespace-pre-wrap leading-relaxed">
-              {m.text}
-            </p>
-
-            {m.image && (
-              <div className="mt-3 relative group">
-                <img
-                  src={m.image}
-                  alt="Generated Image"
-                  className="rounded-lg max-w-full border border-gray-200 shadow-sm"
-                />
-                <button
-                  onClick={async () => {
-                    try {
-                      const response = await fetch(m.image);
-                      const blob = await response.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = "generated-image.png";
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      window.URL.revokeObjectURL(url);
-                    } catch (err) {
-                      console.error("Image download failed:", err);
-                      alert("Failed to download image.");
-                    }
-                  }}
-                  className="absolute top-2 right-2 bg-white/80 hover:bg-white shadow-md rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Download image"
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`flex ${
+                  m.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div
+                  className={`${m.role === "user" ? "max-w-[90%] sm:max-w-[85%]" : "max-w-[90%] sm:max-w-[85%]"}`}
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4 text-gray-700"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
-                    />
-                  </svg>
-                </button>
-              </div>
-            )}
+                  {/* Message bubble */}
+                  <div className="relative overflow-visible">
+                    <div
+                      className={`rounded-3xl p-4 text-sm ${
+                        m.role === "user"
+                          ? "bg-purple-600 text-white"
+                          : "bg-white text-gray-800"
+                      }`}
+                    >
+                      {/* FIXED: Use renderMessageContent for assistant messages */}
+                      {m.role === "assistant" ? (
+                        renderMessageContent(m.text)
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed">
+                          {m.text}
+                        </p>
+                      )}
 
-            {m.files && m.files.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {m.files.map((file, index) => (
-                  <div
-                    key={index}
-                    className={`flex items-center text-xs rounded px-2 py-1 ${
-                      m.role === "user" 
-                        ? "bg-white/20" 
-                        : "bg-gray-100"
-                    }`}
-                  >
-                    <span className="truncate">{file.name}</span>
+                      {m.image && (
+                        <div className="mt-3 relative group">
+                          <img
+                            src={m.image}
+                            alt="Generated Image"
+                            className="rounded-lg max-w-full border border-gray-200 shadow-sm"
+                          />
+                          <button
+                            onClick={async () => {
+                              try {
+                                const response = await fetch(m.image);
+                                const blob = await response.blob();
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = "generated-image.png";
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                window.URL.revokeObjectURL(url);
+                              } catch (err) {
+                                console.error("Image download failed:", err);
+                                alert("Failed to download image.");
+                              }
+                            }}
+                            className="absolute top-2 right-2 bg-white/80 hover:bg-white shadow-md rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Download image"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="h-4 w-4 text-gray-700"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+
+                      {m.files && m.files.length > 0 && (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="text-xs opacity-80 mb-1">
+                            🧷 Attached files:
+                          </div>
+                          {m.files.map((file, index) => (
+                            <div
+                              key={index}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+                                m.role === "user" 
+                                  ? "bg-white/20" 
+                                  : "bg-gray-100"
+                              }`}
+                            >
+                              <svg 
+                                className="w-4 h-4 flex-shrink-0" 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path 
+                                  strokeLinecap="round" 
+                                  strokeLinejoin="round" 
+                                  strokeWidth={2} 
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                                />
+                              </svg>
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-xs font-medium">
+                                  {file.name}
+                                </div>
+                                <div className="text-xs opacity-70">
+                                  {file.type} • {formatFileSize(file.size)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* iMessage-style tail for user messages */}
+                    {m.role === "user" && (
+                      <svg
+                        className="absolute -right-3 bottom-1"
+                        width="26"
+                        height="35"
+                        viewBox="0 0 26 35"
+                      >
+                        <path
+                          d="M0 0 L0 15 Q2 24 12 30 Q18 33 26 35 L0 35 Z"
+                          className="fill-purple-600"
+                        />
+                      </svg>
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
-            )}
-          </div>
-
-          {/* iMessage-style tail for user messages */}
-          {m.role === "user" && (
-            <svg
-              className="absolute -right-3 bottom-1"
-              width="26"
-              height="35"
-              viewBox="0 0 26 35"
-            >
-              <path
-                d="M0 0 L0 15 Q2 24 12 30 Q18 33 26 35 L0 35 Z"
-                className="fill-purple-600"
-              />
-            </svg>
-          )}
-        </div>
-      </div>
-    </div>
-  ))}
-
+            ))}
 
             {isLoading && (
               <div className="flex justify-start">
                 <div className="max-w-[90%] sm:max-w-[85%]">
-                 
-                    <div className="flex items-center space-x-1">
-                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div
-                        className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                        style={{ animationDelay: "0.1s" }}
-                      ></div>
-                      <div
-                        className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                        style={{ animationDelay: "0.2s" }}
-                      ></div>
-                      <span className="ml-2 text-gray-500 text-sm">
-                        
-                      </span>
-                    </div>
+                  <div className="flex items-center space-x-1">
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div
+                      className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                      style={{ animationDelay: "0.1s" }}
+                    ></div>
+                    <div
+                      className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                      style={{ animationDelay: "0.2s" }}
+                    ></div>
+                    <span className="ml-2 text-gray-500 text-sm">
+                      
+                    </span>
                   </div>
                 </div>
-              
+              </div>
             )}
           </div>
         )}
