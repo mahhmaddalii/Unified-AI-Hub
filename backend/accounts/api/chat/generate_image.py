@@ -22,7 +22,7 @@ def image_generator(prompt: str, aspect_ratio: str = "1:1"):
         }
 
         payload = {
-            "model": "google/gemini-2.5-flash-image-preview",
+            "model": "google/gemini-2.5-flash-image",
             "messages": [
                 {
                     "role": "user",

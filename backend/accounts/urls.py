@@ -22,8 +22,6 @@ urlpatterns = [
     # Local APIs
     path('api/', include('accounts.api.urls')),
     path('api/', include('accounts.urls')),
-    path('chat/', include('chat.urls')),
-    path('upload_document/', include('upload_document.urls')),
     path("accounts/", include("accounts.urls")),
     # Admin
     path('admin/', admin.site.urls),
