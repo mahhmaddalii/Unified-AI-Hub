@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { API_URL, setTokens } from "../../utils/auth.js";
+import { API_URL, setTokens } from "../../utils/auth";
 
 export default function SignupForm() {
   const router = useRouter();

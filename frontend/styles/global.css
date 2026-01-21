@@ -130,3 +130,21 @@
       /* ===== SIDEBAR ===== */
 
       /* ===== MAIN CHAT AREA ===== */
+
+      .message-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: -14px;
+  width: 20px;
+  height: 24px;
+  background: linear-gradient(135deg, #6b21a8, #4f46e5);
+  border: 1px solid rgba(124, 58, 237, 0.125);
+  border-left: none;
+  border-top: none;
+  border-radius: 0 24px 24px 0;
+  box-shadow: 0 10px 15px -3px rgba(167, 139, 250, 0.5);
+  z-index: 0;
+  pointer-events: none;
+}
+

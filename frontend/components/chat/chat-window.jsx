@@ -509,120 +509,118 @@ export default function ChatWindow({
           </div>
         ) : (
           // Chat messages
-          <div className="space-y-3 max-w-3xl mx-auto">
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex ${
-                  m.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                <div
-                  className={`flex ${
-                    m.role === "user" ? "flex-row-reverse" : ""
-                  } max-w-[90%] sm:max-w-[85%]`}
+          <div className="space-y-3 max-w-3xl mx-auto pt-2">
+  {messages.map((m) => (
+    <div
+      key={m.id}
+      className={`flex ${
+        m.role === "user" ? "justify-end" : "justify-start"
+      }`}
+    >
+      <div
+        className={`${m.role === "user" ? "max-w-[90%] sm:max-w-[85%]" : "max-w-[90%] sm:max-w-[85%]"}`}
+      >
+        {/* Message bubble */}
+        <div className="relative overflow-visible">
+          <div
+            className={`rounded-3xl p-4 text-sm ${
+              m.role === "user"
+                ? "bg-purple-600 text-white"
+                : "bg-white text-gray-800"
+            }`}
+          >
+            <p className="whitespace-pre-wrap leading-relaxed">
+              {m.text}
+            </p>
+
+            {m.image && (
+              <div className="mt-3 relative group">
+                <img
+                  src={m.image}
+                  alt="Generated Image"
+                  className="rounded-lg max-w-full border border-gray-200 shadow-sm"
+                />
+                <button
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(m.image);
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = "generated-image.png";
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      window.URL.revokeObjectURL(url);
+                    } catch (err) {
+                      console.error("Image download failed:", err);
+                      alert("Failed to download image.");
+                    }
+                  }}
+                  className="absolute top-2 right-2 bg-white/80 hover:bg-white shadow-md rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Download image"
                 >
-                  {/* Avatar */}
-                  <div
-                    className={`flex-shrink-0 ${
-                      m.role === "user" ? "ml-2" : "mr-2"
-                    }`}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 text-gray-700"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
                   >
-                    <div
-                      className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-xs font-medium ${
-                        m.role === "user"
-                          ? "bg-gray-700 text-white"
-                          : "bg-gradient-to-br from-purple-500 to-indigo-600 text-white"
-                      }`}
-                    >
-                      {m.role === "user" ? "You" : "AI"}
-                    </div>
-                  </div>
-
-                  {/* Message bubble */}
-                  <div
-                    className={`rounded-xl p-3 text-sm ${
-                      m.role === "user"
-                        ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white"
-                        : "text-gray-800"
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap leading-relaxed">
-                      {m.text}
-                    </p>
-
-                    {m.image && (
-                      <div className="mt-3 relative group">
-                        <img
-                          src={m.image}
-                          alt="Generated Image"
-                          className="rounded-lg max-w-full border border-gray-200 shadow-sm"
-                        />
-                        <button
-                          onClick={async () => {
-                            try {
-                              const response = await fetch(m.image);
-                              const blob = await response.blob();
-                              const url = window.URL.createObjectURL(blob);
-                              const a = document.createElement("a");
-                              a.href = url;
-                              a.download = "generated-image.png";
-                              document.body.appendChild(a);
-                              a.click();
-                              a.remove();
-                              window.URL.revokeObjectURL(url);
-                            } catch (err) {
-                              console.error("Image download failed:", err);
-                              alert("Failed to download image.");
-                            }
-                          }}
-                          className="absolute top-2 right-2 bg-white/80 hover:bg-white shadow-md rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Download image"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-4 w-4 text-gray-700"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
-
-                    {m.files && m.files.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {m.files.map((file, index) => (
-                          <div
-                            key={index}
-                            className="flex items-center text-xs bg-white/20 rounded px-2 py-1"
-                          >
-                            <span className="truncate">{file.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+                    />
+                  </svg>
+                </button>
               </div>
-            ))}
+            )}
+
+            {m.files && m.files.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {m.files.map((file, index) => (
+                  <div
+                    key={index}
+                    className={`flex items-center text-xs rounded px-2 py-1 ${
+                      m.role === "user" 
+                        ? "bg-white/20" 
+                        : "bg-gray-100"
+                    }`}
+                  >
+                    <span className="truncate">{file.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* iMessage-style tail for user messages */}
+          {m.role === "user" && (
+            <svg
+              className="absolute -right-3 bottom-1"
+              width="26"
+              height="35"
+              viewBox="0 0 26 35"
+            >
+              <path
+                d="M0 0 L0 15 Q2 24 12 30 Q18 33 26 35 L0 35 Z"
+                className="fill-purple-600"
+              />
+            </svg>
+          )}
+        </div>
+      </div>
+    </div>
+  ))}
+
 
             {isLoading && (
               <div className="flex justify-start">
-                <div className="flex max-w-[90%] sm:max-w-[85%]">
-                  <div className="flex-shrink-0 mr-2">
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center bg-gradient-to-br from-purple-500 to-indigo-600">
-                      <span className="text-xs font-medium text-white">AI</span>
-                    </div>
-                  </div>
-                  <div className="rounded-xl p-2.5 sm:p-3 text-sm">
+                <div className="max-w-[90%] sm:max-w-[85%]">
+                 
                     <div className="flex items-center space-x-1">
                       <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
                       <div
@@ -634,12 +632,12 @@ export default function ChatWindow({
                         style={{ animationDelay: "0.2s" }}
                       ></div>
                       <span className="ml-2 text-gray-500 text-sm">
-                        Thinking...
+                        
                       </span>
                     </div>
                   </div>
                 </div>
-              </div>
+              
             )}
           </div>
         )}
@@ -683,7 +681,7 @@ export default function ChatWindow({
       )}
 
       {/* Input area */}
-      <div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative">
+      <div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative flex-shrink-0">
         <div
           className={`max-w-3xl mx-auto rounded-xl p-2 sm:p-2 transition-all duration-200 ${
             input ? "ring-1 sm:ring-2 ring-purple-300" : ""

@@ -2,28 +2,46 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
-import ChatSidebar from "../../components/ui/chat-sidebar";
-import ChatWindow from "../../components/ui/chat-window";
-import Navbar from "../../components/ui/chat-navbar";
+import ChatSidebar from "../../components/chat/chat-sidebar";
+import ChatWindow from "../../components/chat/chat-window";
+import Navbar from "../../components/chat/chat-navbar";
+import AgentDashboard from "../../components/agents/adashboard";
+import { AgentProvider, useAgents } from "../../components/agents/AgentContext";
 
-export default function ChatPage() {
+// Inner component that uses AgentContext
+function ChatPageContent() {
+  // ========== GET AGENT STATE FROM CONTEXT ONLY ==========
+  const { 
+    selectedAgent: contextSelectedAgent, 
+    setSelectedAgent: contextSetSelectedAgent,
+    setEditingAgent: contextSetEditingAgent,
+    setIsCreatingAgent: contextSetIsCreatingAgent
+  } = useAgents();
+
+  // ========== CHAT-RELATED STATE ONLY ==========
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [hasPrompt, setHasPrompt] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [activeChatId, setActiveChatId] = useState(null);
   const [chats, setChats] = useState([]);
   const [chatMessages, setChatMessages] = useState({});
-  const [loadingChats, setLoadingChats] = useState(new Set()); // Track which chats are loading
+  const [loadingChats, setLoadingChats] = useState(new Set());
+  const [showAgentDashboard, setShowAgentDashboard] = useState(false);
   
+  // ========== REMOVE THESE LINES ==========
+  // const [selectedAgent, setSelectedAgent] = useState(null);
+  // const [showCreateAgentModal, setShowCreateAgentModal] = useState(false);
+  // const [editingAgent, setEditingAgent] = useState(null);
+
   const latestActiveChatId = useRef(null);
   const pendingAIMessages = useRef(new Map());
 
   // Keep ref in sync with state
   useEffect(() => {
     latestActiveChatId.current = activeChatId;
-    console.log("🔁 latestActiveChatId updated:", activeChatId);
   }, [activeChatId]);
 
+  // Mobile detection
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
@@ -31,256 +49,21 @@ export default function ChatPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Prepare for new chat - just set activeChatId to null to show welcome screen
-  const prepareNewChat = useCallback(() => {
-    console.log("🆕 Preparing new chat - setting activeChatId to null");
-    setActiveChatId(null);
-    latestActiveChatId.current = null;
-    setHasPrompt(false);
-  }, []);
+  // ========== CHAT HANDLERS ==========
 
-  // Actually create chat and add to sidebar (called when first message is sent)
-  const createNewChat = useCallback((firstMessage) => {
-    const newChatId = uuidv4();
-    const newChat = {
-      id: newChatId,
-      name: "New Chat", // Show "New Chat" as temporary title
-      lastActive: "Just now"
-    };
-    
-    console.log("🏗️ Creating new chat with ID:", newChatId);
-    
-    // Use functional updates to ensure proper order
-    setChats(prev => {
-      console.log("📋 Adding chat to sidebar:", newChatId);
-      return [newChat, ...prev];
-    });
-    
-    // Set as active chat - this should happen AFTER sidebar update
-    setActiveChatId(newChatId);
-    latestActiveChatId.current = newChatId;
-    setHasPrompt(true);
-    
-    // Add the first message
-    setChatMessages(prev => {
-      console.log("💾 Storing first message in chat:", newChatId);
-      return {
-        ...prev,
-        [newChatId]: [firstMessage]
-      };
-    });
-
-    console.log("✅ Chat creation complete:", newChatId);
-    return newChatId;
-  }, []);
-
-  const handleToggleSidebar = useCallback((open) => {
-    setIsSidebarOpen(open);
-  }, []);
-
-  // Helper to add message to chat
-  const addMessageToChat = useCallback((chatId, message) => {
-    setChatMessages(prev => {
-      const currentMessages = prev[chatId] || [];
-      const messageIndex = currentMessages.findIndex(m => m.id === message.id);
-      
-      if (messageIndex > -1) {
-        // Update existing message - preserve all properties
-        const updatedMessages = [...currentMessages];
-        updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], ...message };
-        console.log("🔄 Updating existing message:", message.id);
-        return { ...prev, [chatId]: updatedMessages };
-      } else {
-        // Add new message
-        console.log("➕ Adding new message:", message.id);
-        return { ...prev, [chatId]: [...currentMessages, message] };
-      }
-    });
-  }, []);
-
-  // Set loading state for a specific chat
-  const setChatLoading = useCallback((chatId, isLoading) => {
-    setLoadingChats(prev => {
-      const newSet = new Set(prev);
-      if (isLoading) {
-        newSet.add(chatId);
-      } else {
-        newSet.delete(chatId);
-      }
-      console.log("🔄 Loading chats:", Array.from(newSet));
-      return newSet;
-    });
-  }, []);
-
-  // Check if a specific chat is loading
-  const isChatLoading = useCallback((chatId) => {
-    return loadingChats.has(chatId);
-  }, [loadingChats]);
-
-  // Process pending AI messages
-  const processPendingAIMessages = useCallback((chatId) => {
-    if (pendingAIMessages.current.size > 0) {
-      console.log("🔄 Processing pending AI messages for chat:", chatId);
-      setChatMessages(prev => {
-        const currentMessages = prev[chatId] || [];
-        const pendingMessages = Array.from(pendingAIMessages.current.values());
-        
-        // Filter out duplicates
-        const newMessages = pendingMessages.filter(pendingMsg => 
-          !currentMessages.some(existingMsg => existingMsg.id === pendingMsg.id)
-        );
-        
-        const newState = { 
-          ...prev, 
-          [chatId]: [...currentMessages, ...newMessages] 
-        };
-        
-        console.log("📥 Added", newMessages.length, "pending messages");
-        pendingAIMessages.current.clear();
-        return newState;
-      });
-    }
-  }, []);
-
-  // Handle new messages
-  const handleNewMessage = useCallback((message) => {
-    const currentChatId = latestActiveChatId.current;
-    
-    console.log("📨 PARENT: Handling message:", {
-      role: message.role,
-      id: message.id,
-      currentChatId: currentChatId,
-      hasActiveChat: !!currentChatId
-    });
-    
-    if (message.role === "user") {
-      // If no active chat exists (welcome screen), create one
-      if (!currentChatId) {
-        console.log("🚀 Creating new chat for first message");
-        const newChatId = createNewChat(message);
-        console.log("✅ Chat created, new activeChatId should be:", newChatId);
-        
-        // Update the ref immediately for the ChatWindow to use
-        latestActiveChatId.current = newChatId;
-        
-        // Set loading state for the new chat
-        setChatLoading(newChatId, true);
-        
-        // Return the chatId so ChatWindow can use it immediately
-        return { chatId: newChatId, setLoading: true };
-      } else {
-        // Add message to existing chat
-        console.log("➕ Adding message to existing chat:", currentChatId);
-        addMessageToChat(currentChatId, message);
-        setHasPrompt(true);
-        setChats(prev => prev.map(chat => 
-          chat.id === currentChatId 
-            ? { ...chat, lastActive: "Just now" }
-            : chat
-        ));
-        
-        // Set loading state for this chat
-        setChatLoading(currentChatId, true);
-        
-        return { chatId: currentChatId, setLoading: true };
-      }
-    }
-    
-    // Handle AI messages - only add if it doesn't exist already
-    if (message.role === "assistant") {
-      if (currentChatId) {
-        // Check if message already exists to prevent duplicates
-        const existingMessages = chatMessages[currentChatId] || [];
-        const messageExists = existingMessages.some(m => m.id === message.id);
-        
-        if (!messageExists) {
-          console.log("🤖 Adding AI message to chat:", currentChatId, "Message ID:", message.id);
-          addMessageToChat(currentChatId, message);
-          
-          // Update chat last active time
-          setChats(prev => prev.map(chat => 
-            chat.id === currentChatId 
-              ? { ...chat, lastActive: "Just now" }
-              : chat
-          ));
-        } else {
-          console.log("🔄 AI message already exists, updating:", currentChatId, "Message ID:", message.id);
-          // Update existing message
-          addMessageToChat(currentChatId, message);
-        }
-        
-        // Clear loading state when AI message is received
-        setChatLoading(currentChatId, false);
-      } else {
-        console.log("⏳ Storing AI message temporarily - no chat yet");
-        // Store AI message temporarily if no chat exists
-        pendingAIMessages.current.set(message.id, message);
-      }
-    }
-    
-    // Handle title updates from the AI
-    if (message.title) {
-      console.log("🏷️ Updating chat title:", currentChatId, message.title);
-      setChats(prev => prev.map(chat => 
-        chat.id === currentChatId 
-          ? { ...chat, name: message.title }
-          : chat
-      ));
-    }
-    
-    // Always return the current chat ID
-    return { chatId: currentChatId, setLoading: false };
-  }, [createNewChat, addMessageToChat, chatMessages, setChatLoading]);
-
-  // Update chats from sidebar
-  const updateChats = useCallback((newChats) => {
-    console.log("📋 Updating chats list");
-    setChats(newChats);
-    
-    if (activeChatId && !newChats.find(chat => chat.id === activeChatId)) {
-      console.log("🗑️ Active chat was deleted:", activeChatId);
-      setActiveChatId(null);
-      latestActiveChatId.current = null;
-      setHasPrompt(false);
-      
-      // Clear loading state for deleted chat
-      setChatLoading(activeChatId, false);
-      
-      setChatMessages(prev => {
-        const newMessages = { ...prev };
-        delete newMessages[activeChatId];
-        return newMessages;
-      });
-    }
-  }, [activeChatId, setChatLoading]);
-
-  // Handle chat selection
-  const handleSelectChat = useCallback((chatId) => {
-    console.log("🎯 Selecting chat:", chatId);
-    
-    setActiveChatId(chatId);
-    latestActiveChatId.current = chatId;
-    const hasMessages = chatMessages[chatId]?.length > 0;
-    setHasPrompt(hasMessages);
-    
-    // Process any pending messages for this chat
-    if (pendingAIMessages.current.size > 0) {
-      console.log("🔄 Processing pending AI messages for newly selected chat:", chatId);
-      processPendingAIMessages(chatId);
-    }
-  }, [chatMessages, processPendingAIMessages]);
-
-  // Handle chat deletion
   const handleDeleteChat = useCallback((chatId) => {
-    console.log("🗑️ Deleting chat:", chatId);
     if (chatId === activeChatId) {
       setActiveChatId(null);
       latestActiveChatId.current = null;
       setHasPrompt(false);
+      contextSetSelectedAgent(null); // Use context setter
     }
     
-    // Clear loading state for deleted chat
-    setChatLoading(chatId, false);
+    setLoadingChats(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(chatId);
+      return newSet;
+    });
     
     const updatedChats = chats.filter(chat => chat.id !== chatId);
     setChats(updatedChats);
@@ -290,30 +73,362 @@ export default function ChatPage() {
       delete newMessages[chatId];
       return newMessages;
     });
-  }, [activeChatId, chats, setChatLoading]);
+  }, [activeChatId, chats, contextSetSelectedAgent]);
 
-  // Process pending messages when activeChatId changes
-  useEffect(() => {
-    if (activeChatId && pendingAIMessages.current.size > 0) {
-      console.log("🔄 Processing pending AI messages for chat:", activeChatId);
-      processPendingAIMessages(activeChatId);
-    }
-  }, [activeChatId, processPendingAIMessages]);
-
-  // Debug effect to log state changes
-  useEffect(() => {
-    console.log("📊 State update:", {
-      activeChatId,
-      chatsCount: chats.length,
-      chatMessagesCount: Object.keys(chatMessages).length,
-      hasPrompt,
-      loadingChats: Array.from(loadingChats)
+  const setChatLoading = useCallback((chatId, isLoading) => {
+    setLoadingChats(prev => {
+      const newSet = new Set(prev);
+      if (isLoading) {
+        newSet.add(chatId);
+      } else {
+        newSet.delete(chatId);
+      }
+      return newSet;
     });
-  }, [activeChatId, chats, chatMessages, hasPrompt, loadingChats]);
+  }, []);
+
+  const isChatLoading = useCallback((chatId) => {
+    return loadingChats.has(chatId);
+  }, [loadingChats]);
+
+  const addMessageToChat = useCallback((chatId, message) => {
+    setChatMessages(prev => {
+      const currentMessages = prev[chatId] || [];
+      const messageIndex = currentMessages.findIndex(m => m.id === message.id);
+      
+      if (messageIndex > -1) {
+        const updatedMessages = [...currentMessages];
+        updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], ...message };
+        return { ...prev, [chatId]: updatedMessages };
+      } else {
+        return { ...prev, [chatId]: [...currentMessages, message] };
+      }
+    });
+  }, []);
+
+  const createNewChat = useCallback((firstMessage, agentId = null) => {
+    const newChatId = uuidv4();
+    const agent = agentId ? contextSelectedAgent : null;
+    const chatName = agent 
+      ? `Chat with ${agent.name}`
+      : "New Chat";
+    
+    const newChat = {
+      id: newChatId,
+      name: chatName,
+      lastActive: "Just now",
+      agentId: agentId
+    };
+    
+    setChats(prev => [newChat, ...prev]);
+    setActiveChatId(newChatId);
+    latestActiveChatId.current = newChatId;
+    setHasPrompt(true);
+    setShowAgentDashboard(false);
+    
+    setChatMessages(prev => ({
+      ...prev,
+      [newChatId]: [firstMessage]
+    }));
+
+    return newChatId;
+  }, [contextSelectedAgent]); // Use contextSelectedAgent
+
+  const handleSelectChat = useCallback((chatId) => {
+    const selectedChat = chats.find(chat => chat.id === chatId);
+    if (selectedChat?.agentId) {
+      // Agent is managed by context, don't need to set here
+    }
+    
+    setActiveChatId(chatId);
+    latestActiveChatId.current = chatId;
+    const hasMessages = chatMessages[chatId]?.length > 0;
+    setHasPrompt(hasMessages);
+    setShowAgentDashboard(false);
+    
+    if (pendingAIMessages.current.size > 0) {
+      setChatMessages(prev => {
+        const currentMessages = prev[chatId] || [];
+        const pendingMessages = Array.from(pendingAIMessages.current.values());
+        
+        const newMessages = pendingMessages.filter(pendingMsg => 
+          !currentMessages.some(existingMsg => existingMsg.id === pendingMsg.id)
+        );
+        
+        const newState = { 
+          ...prev, 
+          [chatId]: [...currentMessages, ...newMessages] 
+        };
+        
+        pendingAIMessages.current.clear();
+        return newState;
+      });
+    }
+  }, [chatMessages, chats]);
+
+  // ========== AGENT EVENT HANDLERS ==========
+  
+  const handleAgentSelect = useCallback((agent) => {
+    // Use context setter
+    contextSetSelectedAgent(agent);
+    
+    if (isMobile) {
+      setShowAgentDashboard(true);
+      return;
+    }
+    
+    // Auto-redirect to chat for both built-in and custom agents
+    if (agent.isBuiltIn) {
+      const existingChat = chats.find(chat => chat.agentId === agent.id);
+      if (existingChat) {
+        handleSelectChat(existingChat.id);
+        setShowAgentDashboard(false);
+      } else {
+        // Create a new chat for built-in agent
+        const newChatId = uuidv4();
+        const newChat = {
+          id: newChatId,
+          name: `Chat with ${agent.name}`,
+          lastActive: "Just now",
+          agentId: agent.id
+        };
+        
+        setChats(prev => [newChat, ...prev]);
+        setActiveChatId(newChatId);
+        latestActiveChatId.current = newChatId;
+        setHasPrompt(false); // No messages yet
+        setShowAgentDashboard(false);
+        
+        // Create empty messages for this chat
+        setChatMessages(prev => ({
+          ...prev,
+          [newChatId]: []
+        }));
+      }
+    } else {
+      // For custom agents, always create new chat or use existing
+      const existingChat = chats.find(chat => 
+        chat.agentId === agent.id
+      );
+      
+      if (existingChat) {
+        handleSelectChat(existingChat.id);
+        setShowAgentDashboard(false);
+      } else {
+        const newChatId = uuidv4();
+        const newChat = {
+          id: newChatId,
+          name: `Chat with ${agent.name}`,
+          lastActive: "Just now",
+          agentId: agent.id
+        };
+        
+        setChats(prev => [newChat, ...prev]);
+        setActiveChatId(newChatId);
+        latestActiveChatId.current = newChatId;
+        setHasPrompt(false); // No messages yet
+        setShowAgentDashboard(false);
+        
+        // Create empty messages for this chat
+        setChatMessages(prev => ({
+          ...prev,
+          [newChatId]: []
+        }));
+      }
+    }
+  }, [chats, isMobile, handleSelectChat, contextSetSelectedAgent]);  
+
+  const handleAgentCreated = useCallback((newAgent) => {
+    console.log("Agent created in parent:", newAgent);
+    // Context already handles selection
+  }, []);
+
+  const handleAgentUpdated = useCallback((agentId, updates) => {
+    console.log("Agent updated in parent:", agentId, updates);
+    // Context handles the update
+  }, []);
+
+  const handleAgentDeleted = useCallback((agentId) => {
+    console.log("Agent deleted in parent:", agentId);
+    // Context handles deletion
+  }, []);
+
+  const handleAgentStatusToggled = useCallback((agentId) => {
+    console.log("Agent status toggled in parent:", agentId);
+    // Context handles status toggle
+  }, []);
+
+  const handleEditAgent = useCallback((agent) => {
+    console.log("Edit agent requested from sidebar:", agent.name);
+    
+    // Use context setters
+    contextSetEditingAgent(agent);
+    contextSetSelectedAgent(agent);
+    
+    // Open dashboard (modal will be triggered by context's isCreatingAgent)
+    setShowAgentDashboard(true);
+    
+    // This will trigger the modal in AgentDashboard
+    contextSetIsCreatingAgent(true);
+  }, [contextSetEditingAgent, contextSetSelectedAgent, contextSetIsCreatingAgent]);
+
+  // ========== OTHER HANDLERS ==========
+
+  const handleAgentsButtonClick = useCallback((openCreateModal = false) => {
+    console.log("📱 PAGE: Agents button clicked, openCreateModal:", openCreateModal);
+    
+    setShowAgentDashboard(true);
+    
+    if (isMobile) {
+      setIsSidebarOpen(false);
+    }
+    
+    if (openCreateModal) {
+      // Clear any existing editing agent and open create modal
+      contextSetEditingAgent(null);
+      contextSetIsCreatingAgent(true);
+    }
+  }, [isMobile, contextSetEditingAgent, contextSetIsCreatingAgent]);
+
+  const prepareNewChat = useCallback(() => {
+    console.log("💬 PAGE: Preparing new chat");
+    
+    setActiveChatId(null);
+    latestActiveChatId.current = null;
+    setHasPrompt(false);
+    contextSetSelectedAgent(null);
+    setShowAgentDashboard(false);
+    contextSetEditingAgent(null);
+  }, [contextSetSelectedAgent, contextSetEditingAgent]);
+
+  const handleToggleSidebar = useCallback((open) => {
+    setIsSidebarOpen(open);
+  }, []);
+
+  const handleNewMessage = useCallback((message) => {
+    const currentChatId = latestActiveChatId.current;
+    
+    if (message.role === "user") {
+      if (contextSelectedAgent) {
+        if (contextSelectedAgent.isBuiltIn) {
+          const existingChat = chats.find(chat => chat.agentId === contextSelectedAgent.id);
+          
+          if (existingChat) {
+            setActiveChatId(existingChat.id);
+            latestActiveChatId.current = existingChat.id;
+            setHasPrompt(true);
+            setShowAgentDashboard(false);
+            
+            addMessageToChat(existingChat.id, message);
+            setChats(prev => prev.map(chat => 
+              chat.id === existingChat.id 
+                ? { ...chat, lastActive: "Just now" }
+                : chat
+            ));
+            
+            setChatLoading(existingChat.id, true);
+            return { chatId: existingChat.id, setLoading: true };
+          } else {
+            const newChatId = createNewChat(message, contextSelectedAgent.id);
+            latestActiveChatId.current = newChatId;
+            setChatLoading(newChatId, true);
+            return { chatId: newChatId, setLoading: true };
+          }
+        } else {
+          if (!currentChatId) {
+            const newChatId = createNewChat(message, contextSelectedAgent.id);
+            latestActiveChatId.current = newChatId;
+            setChatLoading(newChatId, true);
+            return { chatId: newChatId, setLoading: true };
+          } else {
+            addMessageToChat(currentChatId, message);
+            setHasPrompt(true);
+            setChats(prev => prev.map(chat => 
+              chat.id === currentChatId 
+                ? { ...chat, lastActive: "Just now" }
+                : chat
+            ));
+            setChatLoading(currentChatId, true);
+            return { chatId: currentChatId, setLoading: true };
+          }
+        }
+      } else {
+        if (!currentChatId) {
+          const newChatId = createNewChat(message);
+          latestActiveChatId.current = newChatId;
+          setChatLoading(newChatId, true);
+          return { chatId: newChatId, setLoading: true };
+        } else {
+          addMessageToChat(currentChatId, message);
+          setHasPrompt(true);
+          setChats(prev => prev.map(chat => 
+            chat.id === currentChatId 
+              ? { ...chat, lastActive: "Just now" }
+              : chat
+          ));
+          setChatLoading(currentChatId, true);
+          return { chatId: currentChatId, setLoading: true };
+        }
+      }
+    }
+    
+    if (message.role === "assistant") {
+      if (currentChatId) {
+        const existingMessages = chatMessages[currentChatId] || [];
+        const messageExists = existingMessages.some(m => m.id === message.id);
+        
+        if (!messageExists) {
+          addMessageToChat(currentChatId, message);
+          setChats(prev => prev.map(chat => 
+            chat.id === currentChatId 
+              ? { ...chat, lastActive: "Just now" }
+              : chat
+          ));
+        } else {
+          addMessageToChat(currentChatId, message);
+        }
+        
+        setChatLoading(currentChatId, false);
+      } else {
+        pendingAIMessages.current.set(message.id, message);
+      }
+    }
+    
+    if (message.title) {
+      setChats(prev => prev.map(chat => 
+        chat.id === currentChatId 
+          ? { ...chat, name: message.title }
+          : chat
+      ));
+    }
+    
+    return { chatId: currentChatId, setLoading: false };
+  }, [createNewChat, addMessageToChat, chatMessages, setChatLoading, contextSelectedAgent, chats]);
+
+  const updateChats = useCallback((newChats) => {
+    setChats(newChats);
+    
+    if (activeChatId && !newChats.find(chat => chat.id === activeChatId)) {
+      setActiveChatId(null);
+      latestActiveChatId.current = null;
+      setHasPrompt(false);
+      contextSetSelectedAgent(null);
+      
+      setChatLoading(activeChatId, false);
+      
+      setChatMessages(prev => {
+        const newMessages = { ...prev };
+        delete newMessages[activeChatId];
+        return newMessages;
+      });
+    }
+  }, [activeChatId, setChatLoading, contextSetSelectedAgent]);
+
+  // ========== RENDER ==========
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="flex flex-col h-screen">
+    <main className="h-screen bg-white">
+      <div className="flex flex-col h-full overflow-hidden">
         <Navbar
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => handleToggleSidebar(!isSidebarOpen)}
@@ -338,34 +453,66 @@ export default function ChatPage() {
               onChatsUpdate={updateChats}
               onDeleteChat={handleDeleteChat}
               onNewChat={prepareNewChat}
+              onAgentsButtonClick={handleAgentsButtonClick}
+              onEditAgent={handleEditAgent}
+              selectedAgent={contextSelectedAgent}
+              onSelectAgent={handleAgentSelect}
             />
           </div>
 
-          {/* Chat Window */}
+          {/* Main Content */}
           <div className={`
-            flex-1
+            flex-1 overflow-hidden
             transition-all duration-300 
-            p-4 md:p-5
             ${isSidebarOpen && isMobile ? 'opacity-30' : 'opacity-100'}
-            h-full
-            w-full
             ${!isSidebarOpen && !isMobile ? 'md:ml-20' : 'md:ml-0'}
           `}>
-            <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl p-1 md:p-2 w-full h-full flex flex-col overflow-hidden">
-              <ChatWindow 
-                onFirstMessage={() => setHasPrompt(true)}
-                isSidebarOpen={isSidebarOpen}
-                chatId={activeChatId}
-                messages={activeChatId ? (chatMessages[activeChatId] || []) : []}
-                onNewMessage={handleNewMessage}
-                hasActiveChat={!!activeChatId}
-                isLoading={activeChatId ? isChatLoading(activeChatId) : false}
-                onSetLoading={(loading) => activeChatId && setChatLoading(activeChatId, loading)}
-              />
+            <div className="h-full m-2 md:m-4 flex flex-col">
+              <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl h-full flex flex-col overflow-hidden">
+                {showAgentDashboard ? (
+                  <div className="flex-1 overflow-y-auto">
+                                      
+                    <AgentDashboard 
+                      initialActiveChats={chats}
+                      selectedAgent={contextSelectedAgent}
+                      onSelectAgent={handleAgentSelect}
+                      onCreateAgent={handleAgentCreated}
+                      onUpdateAgent={handleAgentUpdated}
+                      onDeleteAgent={handleAgentDeleted}
+                      onToggleAgentStatus={handleAgentStatusToggled}
+                      // REMOVED: No need to pass modal-related props
+                      // The modal is controlled by AgentContext
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-hidden p-1 md:p-2">
+                    <ChatWindow 
+                      onFirstMessage={() => setHasPrompt(true)}
+                      isSidebarOpen={isSidebarOpen}
+                      chatId={activeChatId}
+                      messages={activeChatId ? (chatMessages[activeChatId] || []) : []}
+                      onNewMessage={handleNewMessage}
+                      hasActiveChat={!!activeChatId}
+                      isLoading={activeChatId ? isChatLoading(activeChatId) : false}
+                      onSetLoading={(loading) => activeChatId && setChatLoading(activeChatId, loading)}
+                      selectedAgent={contextSelectedAgent}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
     </main>
+  );
+}
+
+// Main page wrapper
+export default function ChatPage() {
+  return (
+    <AgentProvider>
+      <ChatPageContent />
+    </AgentProvider>
   );
 }
