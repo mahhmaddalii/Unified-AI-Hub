@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { API_URL } from "../../utils/auth.js";
+import { API_URL, setTokens } from "../../utils/auth";
 
 export default function ForgotPasswordForm() {
   const [email, setEmail] = useState("");

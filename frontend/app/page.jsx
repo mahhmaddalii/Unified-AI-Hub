@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import Navbar from "../components/ui/chat-navbar";
+import Navbar from "../components/chat/chat-navbar";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
