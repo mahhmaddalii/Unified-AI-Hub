@@ -91,20 +91,43 @@ function ChatPageContent() {
     return loadingChats.has(chatId);
   }, [loadingChats]);
 
-  const addMessageToChat = useCallback((chatId, message) => {
-    setChatMessages(prev => {
-      const currentMessages = prev[chatId] || [];
-      const messageIndex = currentMessages.findIndex(m => m.id === message.id);
-      
-      if (messageIndex > -1) {
-        const updatedMessages = [...currentMessages];
-        updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], ...message };
-        return { ...prev, [chatId]: updatedMessages };
-      } else {
-        return { ...prev, [chatId]: [...currentMessages, message] };
+ const addMessageToChat = useCallback((chatId, message) => {
+  setChatMessages(prev => {
+    const current = prev[chatId] || [];
+
+    // Prefer realAssistantId if present (from background), else fall back to id
+    const targetId = message.realAssistantId || message.id;
+
+    const existingIndex = current.findIndex(m => (m.realAssistantId || m.id) === targetId);
+
+    if (existingIndex !== -1) {
+      const existing = current[existingIndex];
+
+      // Skip if completely identical (prevents unnecessary re-renders)
+      if (existing.text === message.text && existing.image === message.image) {
+        return prev;
       }
-    });
-  }, []);
+
+      // Merge update into existing message
+      const updated = [...current];
+      updated[existingIndex] = {
+        ...updated[existingIndex],
+        ...message,
+        id: targetId,              // ensure final ID is consistent
+        realAssistantId: undefined // clean up temp field
+      };
+      return { ...prev, [chatId]: updated };
+    }
+
+    // New message (use real ID if provided)
+    const finalMessage = {
+      ...message,
+      id: targetId,
+      realAssistantId: undefined // clean up
+    };
+    return { ...prev, [chatId]: [...current, finalMessage] };
+  });
+}, []);
 
   const createNewChat = useCallback((firstMessage, agentId = null) => {
     const newChatId = uuidv4();
@@ -306,104 +329,109 @@ function ChatPageContent() {
   }, []);
 
   const handleNewMessage = useCallback((message) => {
-    const currentChatId = latestActiveChatId.current;
-    
-    if (message.role === "user") {
-      if (contextSelectedAgent) {
-        if (contextSelectedAgent.isBuiltIn) {
-          const existingChat = chats.find(chat => chat.agentId === contextSelectedAgent.id);
+  const targetChatId = message.chatId || latestActiveChatId.current;
+
+  if (message.role === "assistant" && !targetChatId) {
+    console.warn("No chatId for assistant message:", message);
+    return { chatId: null, setLoading: false };
+  }
+
+  if (message.role === "user") {
+    if (contextSelectedAgent) {
+      if (contextSelectedAgent.isBuiltIn) {
+        const existingChat = chats.find(chat => chat.agentId === contextSelectedAgent.id);
+        
+        if (existingChat) {
+          setActiveChatId(existingChat.id);
+          latestActiveChatId.current = existingChat.id;
+          setHasPrompt(true);
+          setShowAgentDashboard(false);
           
-          if (existingChat) {
-            setActiveChatId(existingChat.id);
-            latestActiveChatId.current = existingChat.id;
-            setHasPrompt(true);
-            setShowAgentDashboard(false);
-            
-            addMessageToChat(existingChat.id, message);
-            setChats(prev => prev.map(chat => 
-              chat.id === existingChat.id 
-                ? { ...chat, lastActive: "Just now" }
-                : chat
-            ));
-            
-            setChatLoading(existingChat.id, true);
-            return { chatId: existingChat.id, setLoading: true };
-          } else {
-            const newChatId = createNewChat(message, contextSelectedAgent.id);
-            latestActiveChatId.current = newChatId;
-            setChatLoading(newChatId, true);
-            return { chatId: newChatId, setLoading: true };
-          }
+          addMessageToChat(existingChat.id, message);
+          setChats(prev => prev.map(chat => 
+            chat.id === existingChat.id 
+              ? { ...chat, lastActive: "Just now" }
+              : chat
+          ));
+          
+          setChatLoading(existingChat.id, true);
+          return { chatId: existingChat.id, setLoading: true };
         } else {
-          if (!currentChatId) {
-            const newChatId = createNewChat(message, contextSelectedAgent.id);
-            latestActiveChatId.current = newChatId;
-            setChatLoading(newChatId, true);
-            return { chatId: newChatId, setLoading: true };
-          } else {
-            addMessageToChat(currentChatId, message);
-            setHasPrompt(true);
-            setChats(prev => prev.map(chat => 
-              chat.id === currentChatId 
-                ? { ...chat, lastActive: "Just now" }
-                : chat
-            ));
-            setChatLoading(currentChatId, true);
-            return { chatId: currentChatId, setLoading: true };
-          }
+          const newChatId = createNewChat(message, contextSelectedAgent.id);
+          latestActiveChatId.current = newChatId;
+          setChatLoading(newChatId, true);
+          return { chatId: newChatId, setLoading: true };
         }
       } else {
-        if (!currentChatId) {
-          const newChatId = createNewChat(message);
+        if (!targetChatId) {
+          const newChatId = createNewChat(message, contextSelectedAgent.id);
           latestActiveChatId.current = newChatId;
           setChatLoading(newChatId, true);
           return { chatId: newChatId, setLoading: true };
         } else {
-          addMessageToChat(currentChatId, message);
+          addMessageToChat(targetChatId, message);
           setHasPrompt(true);
           setChats(prev => prev.map(chat => 
-            chat.id === currentChatId 
+            chat.id === targetChatId 
               ? { ...chat, lastActive: "Just now" }
               : chat
           ));
-          setChatLoading(currentChatId, true);
-          return { chatId: currentChatId, setLoading: true };
+          setChatLoading(targetChatId, true);
+          return { chatId: targetChatId, setLoading: true };
         }
       }
-    }
-    
-    if (message.role === "assistant") {
-      if (currentChatId) {
-        const existingMessages = chatMessages[currentChatId] || [];
-        const messageExists = existingMessages.some(m => m.id === message.id);
-        
-        if (!messageExists) {
-          addMessageToChat(currentChatId, message);
-          setChats(prev => prev.map(chat => 
-            chat.id === currentChatId 
-              ? { ...chat, lastActive: "Just now" }
-              : chat
-          ));
-        } else {
-          addMessageToChat(currentChatId, message);
-        }
-        
-        setChatLoading(currentChatId, false);
+    } else {
+      if (!targetChatId) {
+        const newChatId = createNewChat(message);
+        latestActiveChatId.current = newChatId;
+        setChatLoading(newChatId, true);
+        return { chatId: newChatId, setLoading: true };
       } else {
-        pendingAIMessages.current.set(message.id, message);
+        addMessageToChat(targetChatId, message);
+        setHasPrompt(true);
+        setChats(prev => prev.map(chat => 
+          chat.id === targetChatId 
+            ? { ...chat, lastActive: "Just now" }
+            : chat
+        ));
+        setChatLoading(targetChatId, true);
+        return { chatId: targetChatId, setLoading: true };
       }
     }
-    
-    if (message.title) {
-      setChats(prev => prev.map(chat => 
-        chat.id === currentChatId 
-          ? { ...chat, name: message.title }
-          : chat
-      ));
+  }
+  
+  if (message.role === "assistant") {
+    if (targetChatId) {
+      const existingMessages = chatMessages[targetChatId] || [];
+      const messageExists = existingMessages.some(m => m.id === message.id);
+
+      if (!messageExists) {
+        addMessageToChat(targetChatId, message);
+        setChats(prev => prev.map(chat => 
+          chat.id === targetChatId 
+            ? { ...chat, lastActive: "Just now" }
+            : chat
+        ));
+      } else {
+        addMessageToChat(targetChatId, message);
+      }
+
+      setChatLoading(targetChatId, false);
+    } else {
+      pendingAIMessages.current.set(message.id, message);
     }
-    
-    return { chatId: currentChatId, setLoading: false };
-  }, [createNewChat, addMessageToChat, chatMessages, setChatLoading, contextSelectedAgent, chats]);
+  }
+
+  if (message.title) {
+    setChats(prev => prev.map(chat => 
+      chat.id === targetChatId 
+        ? { ...chat, name: message.title }
+        : chat
+    ));
+  }
+
+  return { chatId: targetChatId, setLoading: false };
+}, [createNewChat, addMessageToChat, chatMessages, setChatLoading, contextSelectedAgent, chats]);
 
   const updateChats = useCallback((newChats) => {
     setChats(newChats);

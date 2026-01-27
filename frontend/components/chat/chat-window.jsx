@@ -9,13 +9,13 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-export default function ChatWindow({ 
-  chatId, 
+export default function ChatWindow({
+  chatId,
   messages: propMessages = [],
   onNewMessage,
   hasActiveChat,
-  isLoading, // Loading state from parent
-  onSetLoading // Callback to update loading state in parent
+  isLoading,
+  onSetLoading
 }) {
   const [messages, setMessages] = useState(propMessages);
   const [input, setInput] = useState("");
@@ -24,45 +24,39 @@ export default function ChatWindow({
   const [selectedModel, setSelectedModel] = useState("gemini-flashlite");
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [showModelDialog, setShowModelDialog] = useState(false);
-  
+
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const modelDialogRef = useRef(null);
 
-  // Track current streaming connection PER CHAT
-  const currentStreamRef = useRef(null);
+  // Track ALL active streams and per-chat state
+  const activeStreamsRef = useRef(new Map()); // chatId → EventSource
+  const chatStatesRef = useRef(new Map()); // chatId → { assistantMessage, buffer, hasNotifiedParent, receivedFirstMessage, hasImage, lastUpdateTime }
   const latestChatIdRef = useRef(chatId);
   const currentAssistantIdRef = useRef(null);
 
-  // Update the ref whenever chatId changes
+  // Update latest chatId ref
   useEffect(() => {
     latestChatIdRef.current = chatId;
-    console.log("🆔 chatId updated:", chatId);
-    
-    // Close any existing stream when chat changes
-    if (currentStreamRef.current) {
-      currentStreamRef.current.close();
-      currentStreamRef.current = null;
-    }
+    console.log("🆔 Active chatId changed to:", chatId);
   }, [chatId]);
 
-  // Update local messages when prop messages change
+  // Update local messages when props change
   useEffect(() => {
     setMessages(propMessages);
   }, [propMessages, chatId]);
 
-  // Clean up streaming when component unmounts
+  // Cleanup ALL streams and states on unmount
   useEffect(() => {
     return () => {
-      if (currentStreamRef.current) {
-        currentStreamRef.current.close();
-        currentStreamRef.current = null;
-      }
+      activeStreamsRef.current.forEach(stream => stream?.close());
+      activeStreamsRef.current.clear();
+      chatStatesRef.current.clear();
     };
   }, []);
 
-  // AI Models and prompt cards
+  // AI Models and prompt cards (unchanged)
   const aiModels = [
     { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={24} /> },
     { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={24} /> },
@@ -498,336 +492,269 @@ export default function ChatWindow({
     }
   };
 
-  const sendMessage = useCallback(async () => {
-    // Allow sending messages with only files (no text)
-    if (!input.trim() && attachedFiles.length === 0) return;
+const sendMessage = useCallback(async () => {
+  const hasText = input.trim().length > 0;
+  const hasFiles = attachedFiles.length > 0;
 
-    const generateUniqueId = () =>
-      `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  // Block sending if neither text nor files are present
+  if (!hasText && !hasFiles) {
+    return;
+  }
 
-    // Create a user message with files attached
-    const userMsg = {
-      id: generateUniqueId(),
-      role: "user",
-      text: input.trim(),
-      files: attachedFiles.map(file => ({
-        name: file.name,
-        size: file.size,
-        type: getFileType(file.name) // Add file type
-      }))
-    };
+  const generateUniqueId = () =>
+    `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-    // Generate and store assistant ID in ref
-    currentAssistantIdRef.current = generateUniqueId();
+  const userMsg = {
+    id: generateUniqueId(),
+    role: "user",
+    text: input.trim(),
+    files: attachedFiles.map(file => ({
+      name: file.name,
+      size: file.size,
+      type: getFileType(file.name)
+    }))
+  };
 
-    console.log("🚀 sendMessage called with:", {
-      input: input.trim(),
-      hasFiles: attachedFiles.length > 0,
-      hasActiveChat: !!latestChatIdRef.current,
-      currentChatId: latestChatIdRef.current
-    });
+  currentAssistantIdRef.current = generateUniqueId();
 
-    console.log("👤 Sending user message with files:", userMsg.files);
+  console.log("🚀 sendMessage called with:", {
+    input: input.trim(),
+    hasFiles,
+    currentChatId: latestChatIdRef.current
+  });
 
-    // Update local state
-    setMessages(prev => [...prev, userMsg]);
-    
-    // Store current files before clearing
-    const currentFiles = [...attachedFiles];
-    
-    // Notify parent about USER message and get the chatId
-    let currentChatId = latestChatIdRef.current;
-    const isFirstMessage = !currentChatId; // Check if this is the first message
-    
-    if (onNewMessage) {
-      console.log("📨 Calling onNewMessage with user message and files");
-      const result = onNewMessage(userMsg);
-      console.log("🆔 Parent returned:", result);
-      
-      // Handle the new return format
-      if (result && result.chatId) {
-        latestChatIdRef.current = result.chatId;
-        currentChatId = result.chatId;
-        console.log("🔄 Updated latestChatIdRef to:", result.chatId);
-      }
+  setMessages(prev => [...prev, userMsg]);
+
+  const currentFiles = [...attachedFiles];
+
+  let currentChatId = latestChatIdRef.current;
+  const isFirstMessage = !currentChatId;
+
+  if (onNewMessage) {
+    console.log("📨 Calling onNewMessage with user message and files");
+    const result = onNewMessage(userMsg);
+    console.log("🆔 Parent returned:", result);
+
+    if (result && result.chatId) {
+      latestChatIdRef.current = result.chatId;
+      currentChatId = result.chatId;
+      console.log("🔄 Updated latestChatIdRef to:", result.chatId);
     }
-    
-    // Clear input and attached files
-    setInput("");
-    setAttachedFiles([]);
-    setStatusMsg("");
+  }
 
-    // Use the latest chatId after parent has processed the message
-    console.log("🌐 Final chatId for API call:", currentChatId);
-    
-    // Upload files BEFORE streaming message
-    if (currentFiles.length > 0) {
-      await uploadFilesIfAny(currentChatId);
-    }
-    
-    // Only make API call if there's text or this is the first message
-    if (input.trim() || isFirstMessage) {
-      // Add is_first_message parameter to the API URL
-      const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
-        userMsg.text || "[User sent files]"
-      )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
+  setInput("");
+  setAttachedFiles([]);
+  setStatusMsg("");
 
-      console.log("🔗 Making API call to:", url);
+  if (currentFiles.length > 0) {
+    await uploadFilesIfAny(currentChatId);
+  }
 
-      // Set loading state
-      if (onSetLoading) onSetLoading(true);
+  // Trigger AI response whenever user sends something valid
+  // (text only, files only, or both)
+  const apiText = hasText ? input.trim() : "[User sent files]";
 
-      // Add a small delay to ensure the chat is properly created before making the API call
-      setTimeout(() => {
-        makeAPIRequest(userMsg.text || "[User sent files]", currentChatId, currentAssistantIdRef.current, url);
-      }, 100);
-    } else {
-      // If no text but we have files, just update loading state
-      if (onSetLoading) onSetLoading(false);
-    }
-  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading]);
+  const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
+    apiText
+  )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(
+    currentChatId || ''
+  )}&is_first_message=${isFirstMessage}`;
 
-  // Separate function for making the API request
-  const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
-    // Check if the chat is still active before making the request
-    if (chatId !== latestChatIdRef.current) {
-      console.log("⚠️ Chat changed, aborting API request for old chat:", chatId);
-      if (onSetLoading) onSetLoading(false);
+  console.log("🔗 Making API call to:", url);
+
+  if (onSetLoading) onSetLoading(true);
+
+  setTimeout(() => {
+    makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url);
+  }, 100);
+}, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading]);
+
+  // Updated makeAPIRequest - supports background streaming
+  const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
+  if (!targetChatId) return;
+
+  console.log("🔗 Starting background-safe stream for chat:", targetChatId, url);
+
+  if (activeStreamsRef.current.has(targetChatId)) {
+    activeStreamsRef.current.get(targetChatId)?.close();
+    activeStreamsRef.current.delete(targetChatId);
+  }
+
+  const es = new EventSource(url);
+  activeStreamsRef.current.set(targetChatId, es);
+
+  chatStatesRef.current.set(targetChatId, {
+    receivedFirstMessage: false,
+    hasImage: false,
+    assistantMessage: null,
+    imageUrl: null,
+    buffer: "",
+    lastUpdateTime: Date.now(),
+    hasNotifiedParent: false,
+    lastNotifiedTextLength: 0
+  });
+
+  let inactivityTimeout = setTimeout(() => {
+    console.log("⏰ Inactivity timeout - closing stream:", targetChatId);
+    es.close();
+    activeStreamsRef.current.delete(targetChatId);
+    chatStatesRef.current.delete(targetChatId);
+    if (targetChatId === latestChatIdRef.current) onSetLoading?.(false);
+  }, 180000);
+
+  es.onmessage = (event) => {
+    const data = event.data;
+    const state = chatStatesRef.current.get(targetChatId);
+    if (!state) return;
+
+    clearTimeout(inactivityTimeout);
+    inactivityTimeout = setTimeout(() => {
+      console.log("⏰ Stream inactivity timeout:", targetChatId);
+      es.close();
+      activeStreamsRef.current.delete(targetChatId);
+      chatStatesRef.current.delete(targetChatId);
+      if (targetChatId === latestChatIdRef.current) onSetLoading?.(false);
+    }, 180000);
+
+    const isActiveChat = targetChatId === latestChatIdRef.current;
+
+    if (data.startsWith('[TITLE]')) {
+      onNewMessage?.({
+        id: `title-${Date.now()}`,
+        role: "system",
+        title: data.replace('[TITLE]', ''),
+        chatId: targetChatId
+      });
       return;
     }
 
-    console.log("🔗 Making API call to:", url);
+    if (data === '[DONE]') {
+  console.log("✅ Stream completed:", targetChatId);
+  clearTimeout(inactivityTimeout);
+  es.close();
+  activeStreamsRef.current.delete(targetChatId);
 
-    // Close any existing stream
-    if (currentStreamRef.current) {
-      currentStreamRef.current.close();
-      currentStreamRef.current = null;
+  if (state.buffer && state.assistantMessage) {
+    state.assistantMessage.text += state.buffer;
+  }
+
+  // ALWAYS send the FULL final message to parent — even in background
+  if (state.assistantMessage) {
+    onNewMessage?.({
+      ...state.assistantMessage,
+      id: assistantId,           // real ID
+      chatId: targetChatId
+    });
+  }
+
+  if (isActiveChat) onSetLoading?.(false);
+  chatStatesRef.current.delete(targetChatId);
+  return;
+}
+
+    if (data.startsWith('[IMAGE]')) {
+      state.imageUrl = data.replace('[IMAGE]', '');
+      state.hasImage = true;
+
+      if (state.assistantMessage) {
+        state.assistantMessage.image = state.imageUrl;
+        onNewMessage?.({ ...state.assistantMessage, chatId: targetChatId });
+      } else {
+        const msg = {
+          id: assistantId,
+          role: "assistant",
+          text: state.buffer || "",
+          image: state.imageUrl
+        };
+        state.assistantMessage = msg;
+        onNewMessage?.({ ...msg, chatId: targetChatId });
+      }
+      return;
     }
 
-    const es = new EventSource(url);
-    currentStreamRef.current = es;
-    
-    let receivedFirstMessage = false;
-    let hasImage = false;
-    let assistantMessage = null;
-    let imageUrl = null;
-    let buffer = "";
-    let lastUpdateTime = 0;
-    const UPDATE_INTERVAL = 50;
-    let hasNotifiedParent = false;
-
-    // Increase timeout to 2 minutes for longer responses
-    const timeoutId = setTimeout(() => {
-      if (!receivedFirstMessage && !hasImage) {
-        console.log("⏰ Request timeout for chat:", chatId);
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        setStatusMsg("Request timeout. The response is taking longer than expected.");
-      }
-    }, 120000); // 2 minutes instead of 30 seconds
-
-    es.onmessage = (event) => {
-      const data = event.data;
-      console.log("📥 Received SSE data for chat:", chatId, data.substring(0, 100));
-      
-      // Check if this message is still relevant for the current chat
-      if (chatId !== latestChatIdRef.current) {
-        console.log("🚫 Message not relevant - chat changed, closing stream");
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        return;
-      }
-      
-      // Reset timeout timer every time we receive data
-      clearTimeout(timeoutId);
-
-      if (currentStreamRef.current !== es) {
-        console.log("🚫 Stream no longer relevant");
-        es.close();
-        return;
-      }
-
-      // Handle title updates
-      if (data.startsWith('[TITLE]')) {
-        const title = data.replace('[TITLE]', '');
-        console.log("🏷️ Received chat title:", title);
-        
-        // Notify parent about the title
-        if (onNewMessage) {
-          onNewMessage({
-            id: `title-${Date.now()}`,
-            role: "system",
-            title: title
-          });
-        }
-        return;
-      }
-
-      if (data === '[DONE]') {
-        console.log("✅ Stream completed for chat:", chatId);
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        clearTimeout(timeoutId);
-        
-        // Final update with any remaining buffer
-        if (buffer && assistantMessage) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          
-          if (!hasNotifiedParent && onNewMessage) {
-            onNewMessage(assistantMessage);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        return;
-      }
-
-      if (data.startsWith('[IMAGE]')) {
-        imageUrl = data.replace('[IMAGE]', '');
-        hasImage = true;
-        
-        if (assistantMessage) {
-          const updatedMessage = { ...assistantMessage, image: imageUrl };
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId ? updatedMessage : msg
-          ));
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(updatedMessage);
-            hasNotifiedParent = true;
-          }
-        } else {
-          const imageMsg = {
-            id: assistantId,
-            role: "assistant", 
-            text: buffer || "",
-            image: imageUrl
-          };
-          setMessages(prev => [...prev, imageMsg]);
-          assistantMessage = imageMsg;
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(imageMsg);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        // Clear loading when image is received
-        if (onSetLoading) onSetLoading(false);
-        clearTimeout(timeoutId);
-        return;
-      }
-
-      if (data.startsWith("[ERROR]")) {
-        console.error("❌ Stream error:", data);
-        es.close();
-        currentStreamRef.current = null;
-        setStatusMsg(data.replace("[ERROR]", ""));
-        if (onSetLoading) onSetLoading(false);
-        clearTimeout(timeoutId);
-        return;
-      }
-
-      const processedData = data.replace(/\\n/g, '\n');
-      buffer += processedData;
-
-      const now = Date.now();
-      
-      if (!receivedFirstMessage) {
-        console.log("🎯 First message chunk received");
-        receivedFirstMessage = true;
-        
-        assistantMessage = {
-          id: assistantId,
-          role: "assistant", 
-          text: buffer
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        
-        // Clear loading immediately when first message is received
-        if (onSetLoading) onSetLoading(false);
-        
-        buffer = "";
-        lastUpdateTime = now;
-        
-        if (onNewMessage && !hasNotifiedParent) {
-          onNewMessage(assistantMessage);
-          hasNotifiedParent = true;
-        }
-      } else if (now - lastUpdateTime > UPDATE_INTERVAL || buffer.length > 20) {
-        if (assistantMessage) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          buffer = "";
-          lastUpdateTime = now;
-        }
-      }
-
-      // Reset timeout after processing each message
-      clearTimeout(timeoutId);
-      setTimeout(() => {
-        if (!receivedFirstMessage && !hasImage) {
-          console.log("⏰ Request timeout for chat:", chatId);
-          es.close();
-          currentStreamRef.current = null;
-          if (onSetLoading) onSetLoading(false);
-          setStatusMsg("Request timeout. The response is taking longer than expected.");
-        }
-      }, 120000);
-    };
-
-    es.onerror = (err) => {
-      console.error("🔌 SSE connection error:", err);
-      clearTimeout(timeoutId);
-      
-      // Check if this error is still relevant for the current chat
-      if (chatId !== latestChatIdRef.current) {
-        console.log("🚫 Error not relevant - chat changed");
-        es.close();
-        return;
-      }
-      
-      if (currentStreamRef.current === es) {
-        // Finalize the assistant message if we have one
-        if (assistantMessage && buffer) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(assistantMessage);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        if (!receivedFirstMessage && !hasImage) {
-          if (onSetLoading) onSetLoading(false);
-          setStatusMsg("Connection error. Please try again.");
-        }
-        
-        currentStreamRef.current = null;
-      }
-      
+    if (data.startsWith("[ERROR]")) {
+      console.error("❌ Stream error:", data);
+      clearTimeout(inactivityTimeout);
       es.close();
-    };
+      activeStreamsRef.current.delete(targetChatId);
+      chatStatesRef.current.delete(targetChatId);
+      if (isActiveChat) {
+        setStatusMsg(data.replace("[ERROR]", ""));
+        onSetLoading?.(false);
+      }
+      return;
+    }
 
-    es.onopen = () => {
-      console.log("🔗 SSE connection opened successfully");
+    // Text chunk
+    const processed = data.replace(/\\n/g, '\n');
+    state.buffer += processed;
+
+    const now = Date.now();
+
+    if (isActiveChat) {
+      // Active: fast UI updates
+      if (!state.receivedFirstMessage) {
+        state.receivedFirstMessage = true;
+        const existing = messages.find(m => m.id === assistantId);
+        state.assistantMessage = existing
+          ? { ...existing, text: state.buffer }
+          : { id: assistantId, role: "assistant", text: state.buffer };
+
+        setMessages(prev => {
+          if (existing) return prev.map(m => m.id === assistantId ? state.assistantMessage : m);
+          return [...prev, state.assistantMessage];
+        });
+
+        onSetLoading?.(false);
+        state.buffer = "";
+        state.lastUpdateTime = now;
+        state.lastNotifiedTextLength = state.assistantMessage.text.length;
+        onNewMessage?.({ ...state.assistantMessage, chatId: targetChatId });
+      } else if (now - state.lastUpdateTime > 80 || state.buffer.length > 50) {
+        if (state.assistantMessage) {
+          state.assistantMessage.text += state.buffer;
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, text: state.assistantMessage.text } : m
+          ));
+          state.buffer = "";
+          state.lastUpdateTime = now;
+          state.lastNotifiedTextLength = state.assistantMessage.text.length;
+        }
+      }
+    } else {
+  // Background mode: ONLY ACCUMULATE LOCALLY — do NOT notify parent until [DONE]
+  // This prevents duplicate key warnings and ensures full response on switch-back
+  if (state.assistantMessage) {
+    state.assistantMessage.text += state.buffer;
+  } else if (state.buffer.length > 0) {
+    // Create initial message locally only
+    const msg = {
+      id: assistantId,
+      role: "assistant",
+      text: state.buffer
     };
-  }, [selectedModel, onNewMessage, onSetLoading]);
+    state.assistantMessage = msg;
+  }
+
+  state.buffer = ""; // clear buffer after adding
+}
+  };
+
+  es.onerror = (err) => {
+    console.error("🔌 SSE error:", targetChatId, err);
+    clearTimeout(inactivityTimeout);
+    es.close();
+    activeStreamsRef.current.delete(targetChatId);
+    chatStatesRef.current.delete(targetChatId);
+    if (targetChatId === latestChatIdRef.current) {
+      onSetLoading?.(false);
+      setStatusMsg("Connection error");
+    }
+  };
+
+  es.onopen = () => console.log("🔗 SSE opened:", targetChatId);
+}, [onNewMessage, onSetLoading, messages]);
+
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -942,7 +869,11 @@ export default function ChatWindow({
                 }`}
               >
                 <div
-                  className={`${m.role === "user" ? "max-w-[90%] sm:max-w-[85%]" : "max-w-[90%] sm:max-w-[85%]"}`}
+                  className={`${
+                    m.role === "user"
+                      ? "max-w-[90%] sm:max-w-[85%]"
+                      : "max-w-[90%] sm:max-w-[85%]"
+                  }`}
                 >
                   {/* Message bubble */}
                   <div className="relative overflow-visible">
@@ -1017,22 +948,22 @@ export default function ChatWindow({
                             <div
                               key={index}
                               className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
-                                m.role === "user" 
-                                  ? "bg-white/20" 
+                                m.role === "user"
+                                  ? "bg-white/20"
                                   : "bg-gray-100"
                               }`}
                             >
-                              <svg 
-                                className="w-4 h-4 flex-shrink-0" 
-                                fill="none" 
-                                stroke="currentColor" 
+                              <svg
+                                className="w-4 h-4 flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
                                 viewBox="0 0 24 24"
                               >
-                                <path 
-                                  strokeLinecap="round" 
-                                  strokeLinejoin="round" 
-                                  strokeWidth={2} 
-                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                                 />
                               </svg>
                               <div className="min-w-0 flex-1">
@@ -1081,9 +1012,7 @@ export default function ChatWindow({
                       className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
                       style={{ animationDelay: "0.2s" }}
                     ></div>
-                    <span className="ml-2 text-gray-500 text-sm">
-                      
-                    </span>
+                    <span className="ml-2 text-gray-500 text-sm"></span>
                   </div>
                 </div>
               </div>
@@ -1113,17 +1042,17 @@ export default function ChatWindow({
                   key={index}
                   className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs transition-colors group"
                 >
-                  <svg 
-                    className="w-3 h-3 mr-1.5 text-gray-500" 
-                    fill="none" 
-                    stroke="currentColor" 
+                  <svg
+                    className="w-3 h-3 mr-1.5 text-gray-500"
+                    fill="none"
+                    stroke="currentColor"
                     viewBox="0 0 24 24"
                   >
-                    <path 
-                      strokeLinecap="round" 
-                      strokeLinejoin="round" 
-                      strokeWidth={2} 
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                     />
                   </svg>
                   <span className="truncate max-w-[80px] sm:max-w-[120px]">
@@ -1146,8 +1075,12 @@ export default function ChatWindow({
       <div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative flex-shrink-0">
         <div
           className={`max-w-3xl mx-auto rounded-xl p-2 sm:p-2 transition-all duration-200 ${
-            input || attachedFiles.length > 0 ? "ring-1 sm:ring-2 ring-purple-300" : ""
-          } ${input || attachedFiles.length > 0 ? "bg-purple-50" : "bg-gray-100"}`}
+            input || attachedFiles.length > 0
+              ? "ring-1 sm:ring-2 ring-purple-300"
+              : ""
+          } ${
+            input || attachedFiles.length > 0 ? "bg-purple-50" : "bg-gray-100"
+          }`}
         >
           <div className="flex items-end gap-1.5 sm:gap-2 mb-2 sm:mb-3">
             <textarea

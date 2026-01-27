@@ -62,10 +62,15 @@ Use markdown headers consistently:
 - `###` for sub-section  
 
 ## Code Blocks
+Code Block Restriction Rule
+Use code blocks only for real programming code or commands.
+Never wrap plain text, explanations, or markdown examples in code blocks.
+
 Always wrap code in fenced code blocks with the correct language tag:
 ```python
 # Example
 print("Hello")
+```
 Lists
 Use proper markdown lists:
 
@@ -101,6 +106,7 @@ Explain the logic...
 ## Code Implementation
 ```python
 # code here
+```
 Explanation
 Explain how it works...
 
@@ -108,21 +114,21 @@ shell
 Copy code
 
 ## Explanatory Question Example
-```markdown
+
 # Topic Explanation
 
 ## Overview
 Short overview...
 
 ## Key Concepts
-- Concept 1
-- Concept 2
+
+Concept 1
+
+Concept 2
 
 ## Details
 Further explanation...
-Comparison Example
-markdown
-Copy code
+
 # Comparison
 
 ## Option A
