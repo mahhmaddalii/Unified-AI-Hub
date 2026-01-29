@@ -78,7 +78,7 @@ export default function ChatWindow({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading]);
+  }, [messages.length, isLoading]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -642,7 +642,7 @@ export default function ChatWindow({
           </div>
         )}
 
-        <div ref={messagesEndRef} />
+        {/* <div ref={messagesEndRef} /> */}
       </div>
 
       {/* Status message */}

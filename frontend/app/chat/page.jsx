@@ -436,7 +436,7 @@ function ChatPageContent() {
           onNewChat={prepareNewChat}
         />
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden h-[93vh]">
           {/* Sidebar */}
           <div className={`
             ${isSidebarOpen ? 'block' : 'hidden'} 
@@ -468,7 +468,7 @@ function ChatPageContent() {
             ${!isSidebarOpen && !isMobile ? 'md:ml-20' : 'md:ml-0'}
           `}>
             <div className="h-full m-2 md:m-4 flex flex-col">
-              <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl h-full flex flex-col overflow-hidden">
+              <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl  flex flex-col overflow-hidden h-[87vh]">
                 {showAgentDashboard ? (
                   <div className="flex-1 overflow-y-auto">
                                       
