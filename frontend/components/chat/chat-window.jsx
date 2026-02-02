@@ -4,6 +4,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import Image from "next/image";
 import { Meta, OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 export default function ChatWindow({ 
   chatId, 
@@ -76,6 +80,354 @@ export default function ChatWindow({
     { title: "Summarize content", prompt: "Summarize the key points from this article", icon: "📝" },
   ];
 
+  // Function to format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Function to get file type
+  const getFileType = (filename) => {
+    const extension = filename.split('.').pop().toLowerCase();
+    
+    // Only the file types you want: txt, pdf, doc/docx, csv
+    const fileTypes = {
+      // Text files
+      'txt': 'Text',
+      // PDF files
+      'pdf': 'PDF',
+      // Word documents
+      'doc': 'Word',
+      'docx': 'Word',
+      // CSV files
+      'csv': 'CSV'
+    };
+    
+    return fileTypes[extension] || 'File';
+  };
+
+  // Custom components for ReactMarkdown
+  const MarkdownComponents = {
+    // Headers
+    h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{children}</h1>,
+    h2: ({ children }) => <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900">{children}</h2>,
+    h3: ({ children }) => <h3 className="text-lg font-semibold mt-4 mb-2 text-gray-900">{children}</h3>,
+    h4: ({ children }) => <h4 className="text-base font-semibold mt-3 mb-2 text-gray-900">{children}</h4>,
+    
+    // Paragraphs
+    p: ({ children }) => <p className="mb-4 leading-relaxed text-gray-800">{children}</p>,
+    
+    // Lists
+    ul: ({ children }) => <ul className="list-disc ml-6 mb-4 space-y-1 text-gray-800">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal ml-6 mb-4 space-y-1 text-gray-800">{children}</ol>,
+    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+    
+    // Code blocks
+    code: ({ node, inline, className, children, ...props }) => {
+      const match = /language-(\w+)/.exec(className || '');
+      const language = match ? match[1] : '';
+      
+      if (!inline && language) {
+        return (
+          <div className="my-4 rounded-lg overflow-hidden border border-gray-200">
+            <div className="bg-gray-800 text-gray-200 px-4 py-2 text-sm font-mono flex justify-between items-center">
+              <span className="uppercase">{language}</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
+                }}
+                className="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <SyntaxHighlighter
+                style={atomDark}
+                language={language}
+                PreTag="div"
+                className="text-sm !m-0"
+                customStyle={{ 
+                  margin: 0, 
+                  borderRadius: 0,
+                  background: '#1f2937'
+                }}
+                showLineNumbers={true}
+                wrapLongLines={false}
+                {...props}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            </div>
+          </div>
+        );
+      } else if (inline) {
+        return (
+          <code className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
+            {children}
+          </code>
+        );
+      } else {
+        // For code blocks without language specification
+        return (
+          <div className="my-4 rounded-lg overflow-hidden border border-gray-200">
+            <div className="bg-gray-800 text-gray-200 px-4 py-2 text-sm font-mono">
+              Code
+            </div>
+            <div className="overflow-x-auto">
+              <pre className="bg-gray-900 text-gray-100 p-4 text-sm font-mono m-0">
+                <code>{children}</code>
+              </pre>
+            </div>
+          </div>
+        );
+      }
+    },
+    
+    // Blockquotes
+    blockquote: ({ children }) => (
+      <blockquote className="border-l-4 border-purple-500 pl-4 my-4 italic text-gray-600 bg-purple-50 py-2 rounded-r">
+        {children}
+      </blockquote>
+    ),
+    
+    // Tables
+    table: ({ children }) => (
+      <div className="overflow-x-auto my-4 border border-gray-200 rounded-lg">
+        <table className="min-w-full divide-y divide-gray-200">{children}</table>
+      </div>
+    ),
+    thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
+    tbody: ({ children }) => <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>,
+    tr: ({ children }) => <tr>{children}</tr>,
+    th: ({ children }) => <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{children}</th>,
+    td: ({ children }) => <td className="px-4 py-3 text-sm text-gray-800">{children}</td>,
+    
+    // Links
+    a: ({ href, children }) => (
+      <a 
+        href={href} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="text-purple-600 hover:text-purple-800 underline"
+      >
+        {children}
+      </a>
+    ),
+    
+    // Strong/Bold
+    strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+    
+    // Emphasis/Italic
+    em: ({ children }) => <em className="italic text-gray-700">{children}</em>,
+  };
+
+  // Function to render formatted message content
+  const renderMessageContent = useCallback((content) => {
+    if (!content) return null;
+
+    // Custom markdown parser that handles inline code and bold text
+    const parseMarkdown = (text) => {
+      const lines = text.split('\n');
+      const elements = [];
+      let codeBlockIndex = 0;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        // Skip empty lines
+        if (line.trim() === '') {
+          elements.push(<br key={`br-${i}`} />);
+          continue;
+        }
+        
+        // Check for headers
+        if (line.startsWith('# ')) {
+          elements.push(<h1 key={`h1-${i}`} className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{parseInlineText(line.substring(2))}</h1>);
+        } else if (line.startsWith('## ')) {
+          elements.push(<h2 key={`h2-${i}`} className="text-xl font-bold mt-5 mb-3 text-gray-900">{parseInlineText(line.substring(3))}</h2>);
+        } else if (line.startsWith('### ')) {
+          elements.push(<h3 key={`h3-${i}`} className="text-lg font-semibold mt-4 mb-2 text-gray-900">{parseInlineText(line.substring(4))}</h3>);
+        } else if (line.startsWith('#### ')) {
+          elements.push(<h4 key={`h4-${i}`} className="text-base font-semibold mt-3 mb-2 text-gray-900">{parseInlineText(line.substring(5))}</h4>);
+        } 
+        // Check for code blocks
+        else if (line.startsWith('```')) {
+          const language = line.substring(3).trim();
+          let codeContent = '';
+          i++;
+          
+          while (i < lines.length && !lines[i].startsWith('```')) {
+            codeContent += lines[i] + '\n';
+            i++;
+          }
+          
+          const currentIndex = codeBlockIndex;
+          codeBlockIndex++;
+          
+          elements.push(
+            <div key={`code-${currentIndex}`} className="my-4 rounded-lg overflow-hidden border border-gray-800 shadow-lg">
+              <div className="bg-gray-900 text-gray-200 px-4 py-3 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-300 font-mono">
+                    {language.toUpperCase() || 'CODE'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(codeContent.trim());
+                    // Create a temporary state for copied feedback
+                    const btn = document.querySelector(`[data-code-index="${currentIndex}"]`);
+                    if (btn) {
+                      const originalText = btn.innerHTML;
+                      btn.innerHTML = '<span class="flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>Copied!</span></span>';
+                      setTimeout(() => {
+                        btn.innerHTML = originalText;
+                      }, 2000);
+                    }
+                  }}
+                  data-code-index={currentIndex}
+                  className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-md transition-all duration-200"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <span>Copy</span>
+                </button>
+              </div>
+              <div className="relative">
+                <SyntaxHighlighter
+                  style={atomDark}
+                  language={language.toLowerCase()}
+                  PreTag="div"
+                  className="text-sm !m-0"
+                  customStyle={{ 
+                    margin: 0,
+                    padding: '1.25rem',
+                    background: '#111827',
+                    fontSize: '0.875rem',
+                    lineHeight: '1.5',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+                  }}
+                  showLineNumbers={true}
+                  lineNumberStyle={{
+                    color: '#6B7280',
+                    minWidth: '3em',
+                    paddingRight: '1em',
+                    textAlign: 'right',
+                    userSelect: 'none'
+                  }}
+                  wrapLines={true}
+                  lineProps={{
+                    style: {
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word'
+                    }
+                  }}
+                >
+                  {codeContent.trim()}
+                </SyntaxHighlighter>
+              </div>
+            </div>
+          );
+        }
+        // Regular text with inline formatting
+        else {
+          elements.push(
+            <div key={`p-${i}`} className="mb-4 leading-relaxed text-gray-800">
+              {parseInlineText(line)}
+            </div>
+          );
+        }
+      }
+      
+      return elements;
+    };
+
+    // Helper function to parse inline formatting (bold, code, etc.)
+    const parseInlineText = (text) => {
+      const parts = [];
+      let lastIndex = 0;
+      
+      // Process bold text (**bold**)
+      const boldRegex = /\*\*([^*]+)\*\*/g;
+      let match;
+      
+      // First collect all matches
+      const matches = [];
+      while ((match = boldRegex.exec(text)) !== null) {
+        matches.push({
+          type: 'bold',
+          start: match.index,
+          end: match.index + match[0].length,
+          content: match[1]
+        });
+      }
+      
+      // Also collect inline code matches (`code`)
+      const codeRegex = /`([^`]+)`/g;
+      while ((match = codeRegex.exec(text)) !== null) {
+        matches.push({
+          type: 'code',
+          start: match.index,
+          end: match.index + match[0].length,
+          content: match[1]
+        });
+      }
+      
+      // Sort matches by start position
+      matches.sort((a, b) => a.start - b.start);
+      
+      // Process text with matches
+      let currentIndex = 0;
+      
+      for (const match of matches) {
+        // Add text before match
+        if (match.start > currentIndex) {
+          parts.push(text.substring(currentIndex, match.start));
+        }
+        
+        // Add the match content
+        if (match.type === 'bold') {
+          parts.push(
+            <strong key={`bold-${match.start}`} className="font-semibold text-gray-900">
+              {match.content}
+            </strong>
+          );
+        } else if (match.type === 'code') {
+          parts.push(
+            <code key={`code-${match.start}`} className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
+              {match.content}
+            </code>
+          );
+        }
+        
+        currentIndex = match.end;
+      }
+      
+      // Add remaining text
+      if (currentIndex < text.length) {
+        parts.push(text.substring(currentIndex));
+      }
+      
+      // If no matches were found, return the original text
+      if (matches.length === 0) {
+        return text;
+      }
+      
+      return parts;
+    };
+    
+    return (
+      <div className="markdown-content">
+        {parseMarkdown(content)}
+      </div>
+    );
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages.length, isLoading]);
@@ -114,16 +466,55 @@ export default function ChatWindow({
 
   const showWelcomeScreen = !hasActiveChat || messages.length === 0;
 
-  const sendMessage = useCallback(() => {
-    if (!input.trim()) return;
+  const uploadFilesIfAny = async (chatId) => {
+    if (attachedFiles.length === 0) return;
+
+    try {
+      console.log("📤 Uploading files for chat:", chatId);
+      console.log("📁 Files to upload:", attachedFiles);
+
+      for (const file of attachedFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("chat_id", chatId);
+
+        const res = await fetch(
+          "http://127.0.0.1:8000/api/chat/upload-document/",
+          {
+            method: "POST",
+            body: formData,
+            credentials: "include",
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error(`Upload failed: ${res.status}`);
+        }
+      }
+
+    } catch (err) {
+      console.error("❌ File upload error:", err);
+      setStatusMsg("File upload failed, continuing without document.");
+    }
+  };
+
+  const sendMessage = useCallback(async () => {
+    // Allow sending messages with only files (no text)
+    if (!input.trim() && attachedFiles.length === 0) return;
 
     const generateUniqueId = () =>
       `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
+    // Create a user message with files attached
     const userMsg = {
       id: generateUniqueId(),
       role: "user",
       text: input.trim(),
+      files: attachedFiles.map(file => ({
+        name: file.name,
+        size: file.size,
+        type: getFileType(file.name) // Add file type
+      }))
     };
 
     // Generate and store assistant ID in ref
@@ -131,22 +522,25 @@ export default function ChatWindow({
 
     console.log("🚀 sendMessage called with:", {
       input: input.trim(),
+      hasFiles: attachedFiles.length > 0,
       hasActiveChat: !!latestChatIdRef.current,
       currentChatId: latestChatIdRef.current
     });
 
-    console.log("👤 Sending user message, latestChatId:", latestChatIdRef.current);
-    console.log("🤖 Generated assistant ID:", currentAssistantIdRef.current);
+    console.log("👤 Sending user message with files:", userMsg.files);
 
     // Update local state
     setMessages(prev => [...prev, userMsg]);
+    
+    // Store current files before clearing
+    const currentFiles = [...attachedFiles];
     
     // Notify parent about USER message and get the chatId
     let currentChatId = latestChatIdRef.current;
     const isFirstMessage = !currentChatId; // Check if this is the first message
     
     if (onNewMessage) {
-      console.log("📨 Calling onNewMessage with user message");
+      console.log("📨 Calling onNewMessage with user message and files");
       const result = onNewMessage(userMsg);
       console.log("🆔 Parent returned:", result);
       
@@ -158,27 +552,40 @@ export default function ChatWindow({
       }
     }
     
+    // Clear input and attached files
     setInput("");
+    setAttachedFiles([]);
     setStatusMsg("");
 
     // Use the latest chatId after parent has processed the message
     console.log("🌐 Final chatId for API call:", currentChatId);
     
-    // Add is_first_message parameter to the API URL
-    const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
-      userMsg.text
-    )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
+    // Upload files BEFORE streaming message
+    if (currentFiles.length > 0) {
+      await uploadFilesIfAny(currentChatId);
+    }
+    
+    // Only make API call if there's text or this is the first message
+    if (input.trim() || isFirstMessage) {
+      // Add is_first_message parameter to the API URL
+      const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
+        userMsg.text || "[User sent files]"
+      )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
 
-    console.log("🔗 Making API call to:", url);
+      console.log("🔗 Making API call to:", url);
 
-    // Set loading state
-    if (onSetLoading) onSetLoading(true);
+      // Set loading state
+      if (onSetLoading) onSetLoading(true);
 
-    // Add a small delay to ensure the chat is properly created before making the API call
-    setTimeout(() => {
-      makeAPIRequest(userMsg.text, currentChatId, currentAssistantIdRef.current, url);
-    }, 100);
-  }, [input, onNewMessage, selectedModel, onSetLoading]);
+      // Add a small delay to ensure the chat is properly created before making the API call
+      setTimeout(() => {
+        makeAPIRequest(userMsg.text || "[User sent files]", currentChatId, currentAssistantIdRef.current, url);
+      }, 100);
+    } else {
+      // If no text but we have files, just update loading state
+      if (onSetLoading) onSetLoading(false);
+    }
+  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading]);
 
   // Separate function for making the API request
   const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
@@ -209,15 +616,16 @@ export default function ChatWindow({
     const UPDATE_INTERVAL = 50;
     let hasNotifiedParent = false;
 
+    // Increase timeout to 2 minutes for longer responses
     const timeoutId = setTimeout(() => {
       if (!receivedFirstMessage && !hasImage) {
         console.log("⏰ Request timeout for chat:", chatId);
         es.close();
         currentStreamRef.current = null;
         if (onSetLoading) onSetLoading(false);
-        setStatusMsg("Request timeout. Please try again.");
+        setStatusMsg("Request timeout. The response is taking longer than expected.");
       }
-    }, 30000);
+    }, 120000); // 2 minutes instead of 30 seconds
 
     es.onmessage = (event) => {
       const data = event.data;
@@ -232,6 +640,7 @@ export default function ChatWindow({
         return;
       }
       
+      // Reset timeout timer every time we receive data
       clearTimeout(timeoutId);
 
       if (currentStreamRef.current !== es) {
@@ -261,6 +670,7 @@ export default function ChatWindow({
         es.close();
         currentStreamRef.current = null;
         if (onSetLoading) onSetLoading(false);
+        clearTimeout(timeoutId);
         
         // Final update with any remaining buffer
         if (buffer && assistantMessage) {
@@ -310,6 +720,7 @@ export default function ChatWindow({
         
         // Clear loading when image is received
         if (onSetLoading) onSetLoading(false);
+        clearTimeout(timeoutId);
         return;
       }
 
@@ -319,6 +730,7 @@ export default function ChatWindow({
         currentStreamRef.current = null;
         setStatusMsg(data.replace("[ERROR]", ""));
         if (onSetLoading) onSetLoading(false);
+        clearTimeout(timeoutId);
         return;
       }
 
@@ -361,6 +773,18 @@ export default function ChatWindow({
           lastUpdateTime = now;
         }
       }
+
+      // Reset timeout after processing each message
+      clearTimeout(timeoutId);
+      setTimeout(() => {
+        if (!receivedFirstMessage && !hasImage) {
+          console.log("⏰ Request timeout for chat:", chatId);
+          es.close();
+          currentStreamRef.current = null;
+          if (onSetLoading) onSetLoading(false);
+          setStatusMsg("Request timeout. The response is taking longer than expected.");
+        }
+      }, 120000);
     };
 
     es.onerror = (err) => {
@@ -510,134 +934,159 @@ export default function ChatWindow({
         ) : (
           // Chat messages
           <div className="space-y-3 max-w-3xl mx-auto pt-2">
-  {messages.map((m) => (
-    <div
-      key={m.id}
-      className={`flex ${
-        m.role === "user" ? "justify-end" : "justify-start"
-      }`}
-    >
-      <div
-        className={`${m.role === "user" ? "max-w-[90%] sm:max-w-[85%]" : "max-w-[90%] sm:max-w-[85%]"}`}
-      >
-        {/* Message bubble */}
-        <div className="relative overflow-visible">
-          <div
-            className={`rounded-3xl p-4 text-sm ${
-              m.role === "user"
-                ? "bg-purple-600 text-white"
-                : "bg-white text-gray-800"
-            }`}
-          >
-            <p className="whitespace-pre-wrap leading-relaxed">
-              {m.text}
-            </p>
-
-            {m.image && (
-              <div className="mt-3 relative group">
-                <img
-                  src={m.image}
-                  alt="Generated Image"
-                  className="rounded-lg max-w-full border border-gray-200 shadow-sm"
-                />
-                <button
-                  onClick={async () => {
-                    try {
-                      const response = await fetch(m.image);
-                      const blob = await response.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = "generated-image.png";
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      window.URL.revokeObjectURL(url);
-                    } catch (err) {
-                      console.error("Image download failed:", err);
-                      alert("Failed to download image.");
-                    }
-                  }}
-                  className="absolute top-2 right-2 bg-white/80 hover:bg-white shadow-md rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Download image"
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`flex ${
+                  m.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div
+                  className={`${m.role === "user" ? "max-w-[90%] sm:max-w-[85%]" : "max-w-[90%] sm:max-w-[85%]"}`}
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4 text-gray-700"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
-                    />
-                  </svg>
-                </button>
-              </div>
-            )}
+                  {/* Message bubble */}
+                  <div className="relative overflow-visible">
+                    <div
+                      className={`rounded-3xl p-4 text-sm ${
+                        m.role === "user"
+                          ? "bg-purple-600 text-white"
+                          : "bg-white text-gray-800"
+                      }`}
+                    >
+                      {/* FIXED: Use renderMessageContent for assistant messages */}
+                      {m.role === "assistant" ? (
+                        renderMessageContent(m.text)
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed">
+                          {m.text}
+                        </p>
+                      )}
 
-            {m.files && m.files.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {m.files.map((file, index) => (
-                  <div
-                    key={index}
-                    className={`flex items-center text-xs rounded px-2 py-1 ${
-                      m.role === "user" 
-                        ? "bg-white/20" 
-                        : "bg-gray-100"
-                    }`}
-                  >
-                    <span className="truncate">{file.name}</span>
+                      {m.image && (
+                        <div className="mt-3 relative group">
+                          <img
+                            src={m.image}
+                            alt="Generated Image"
+                            className="rounded-lg max-w-full border border-gray-200 shadow-sm"
+                          />
+                          <button
+                            onClick={async () => {
+                              try {
+                                const response = await fetch(m.image);
+                                const blob = await response.blob();
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = "generated-image.png";
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                window.URL.revokeObjectURL(url);
+                              } catch (err) {
+                                console.error("Image download failed:", err);
+                                alert("Failed to download image.");
+                              }
+                            }}
+                            className="absolute top-2 right-2 bg-white/80 hover:bg-white shadow-md rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Download image"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="h-4 w-4 text-gray-700"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+
+                      {m.files && m.files.length > 0 && (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="text-xs opacity-80 mb-1">
+                            🧷 Attached files:
+                          </div>
+                          {m.files.map((file, index) => (
+                            <div
+                              key={index}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+                                m.role === "user" 
+                                  ? "bg-white/20" 
+                                  : "bg-gray-100"
+                              }`}
+                            >
+                              <svg 
+                                className="w-4 h-4 flex-shrink-0" 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path 
+                                  strokeLinecap="round" 
+                                  strokeLinejoin="round" 
+                                  strokeWidth={2} 
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                                />
+                              </svg>
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-xs font-medium">
+                                  {file.name}
+                                </div>
+                                <div className="text-xs opacity-70">
+                                  {file.type} • {formatFileSize(file.size)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* iMessage-style tail for user messages */}
+                    {m.role === "user" && (
+                      <svg
+                        className="absolute -right-3 bottom-1"
+                        width="26"
+                        height="35"
+                        viewBox="0 0 26 35"
+                      >
+                        <path
+                          d="M0 0 L0 15 Q2 24 12 30 Q18 33 26 35 L0 35 Z"
+                          className="fill-purple-600"
+                        />
+                      </svg>
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
-            )}
-          </div>
-
-          {/* iMessage-style tail for user messages */}
-          {m.role === "user" && (
-            <svg
-              className="absolute -right-3 bottom-1"
-              width="26"
-              height="35"
-              viewBox="0 0 26 35"
-            >
-              <path
-                d="M0 0 L0 15 Q2 24 12 30 Q18 33 26 35 L0 35 Z"
-                className="fill-purple-600"
-              />
-            </svg>
-          )}
-        </div>
-      </div>
-    </div>
-  ))}
-
+            ))}
 
             {isLoading && (
               <div className="flex justify-start">
                 <div className="max-w-[90%] sm:max-w-[85%]">
-                 
-                    <div className="flex items-center space-x-1">
-                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div
-                        className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                        style={{ animationDelay: "0.1s" }}
-                      ></div>
-                      <div
-                        className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                        style={{ animationDelay: "0.2s" }}
-                      ></div>
-                      <span className="ml-2 text-gray-500 text-sm">
-                        
-                      </span>
-                    </div>
+                  <div className="flex items-center space-x-1">
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div
+                      className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                      style={{ animationDelay: "0.1s" }}
+                    ></div>
+                    <div
+                      className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                      style={{ animationDelay: "0.2s" }}
+                    ></div>
+                    <span className="ml-2 text-gray-500 text-sm">
+                      
+                    </span>
                   </div>
                 </div>
-              
+              </div>
             )}
           </div>
         )}
@@ -654,7 +1103,7 @@ export default function ChatWindow({
         </div>
       )}
 
-      {/* Show attached files */}
+      {/* Show attached files BEFORE sending */}
       {attachedFiles.length > 0 && (
         <div className="px-3 sm:px-4 pb-2">
           <div className="max-w-4xl mx-auto">
@@ -662,14 +1111,27 @@ export default function ChatWindow({
               {attachedFiles.map((file, index) => (
                 <div
                   key={index}
-                  className="flex items-center bg-gray-100 rounded-lg px-2 sm:px-3 py-1 text-xs"
+                  className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs transition-colors group"
                 >
+                  <svg 
+                    className="w-3 h-3 mr-1.5 text-gray-500" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      strokeWidth={2} 
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                    />
+                  </svg>
                   <span className="truncate max-w-[80px] sm:max-w-[120px]">
                     {file.name}
                   </span>
                   <button
                     onClick={() => removeFile(index)}
-                    className="ml-1 sm:ml-2 text-gray-500 hover:text-red-500 p-0.5"
+                    className="ml-1.5 sm:ml-2 text-gray-500 hover:text-red-500 p-0.5 rounded-full hover:bg-red-50 transition-colors"
                   >
                     ×
                   </button>
@@ -684,8 +1146,8 @@ export default function ChatWindow({
       <div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative flex-shrink-0">
         <div
           className={`max-w-3xl mx-auto rounded-xl p-2 sm:p-2 transition-all duration-200 ${
-            input ? "ring-1 sm:ring-2 ring-purple-300" : ""
-          } ${input ? "bg-purple-50" : "bg-gray-100"}`}
+            input || attachedFiles.length > 0 ? "ring-1 sm:ring-2 ring-purple-300" : ""
+          } ${input || attachedFiles.length > 0 ? "bg-purple-50" : "bg-gray-100"}`}
         >
           <div className="flex items-end gap-1.5 sm:gap-2 mb-2 sm:mb-3">
             <textarea
@@ -696,7 +1158,7 @@ export default function ChatWindow({
               className="flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none "
               placeholder="Message AI Assistant..."
               rows="1"
-              required={attachedFiles.length === 0}
+              required={false} // Not required since files can be sent without text
               disabled={isLoading}
             />
 
