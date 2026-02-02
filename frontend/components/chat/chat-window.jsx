@@ -15,7 +15,8 @@ export default function ChatWindow({
   onNewMessage,
   hasActiveChat,
   isLoading,
-  onSetLoading
+  onSetLoading,
+  selectedAgent = null
 }) {
   const [messages, setMessages] = useState(propMessages);
   const [input, setInput] = useState("");
@@ -35,6 +36,10 @@ export default function ChatWindow({
   const chatStatesRef = useRef(new Map()); // chatId → { assistantMessage, buffer, hasNotifiedParent, receivedFirstMessage, hasImage, lastUpdateTime }
   const latestChatIdRef = useRef(chatId);
   const currentAssistantIdRef = useRef(null);
+
+  useEffect(() => {
+  console.log("🤖 ChatWindow selectedAgent:", selectedAgent);
+}, [selectedAgent]);
 
   // Update latest chatId ref
   useEffect(() => {
@@ -520,7 +525,8 @@ const sendMessage = useCallback(async () => {
   console.log("🚀 sendMessage called with:", {
     input: input.trim(),
     hasFiles,
-    currentChatId: latestChatIdRef.current
+    currentChatId: latestChatIdRef.current,
+    selectedAgent: selectedAgent // Add this for debugging
   });
 
   setMessages(prev => [...prev, userMsg]);
@@ -528,7 +534,7 @@ const sendMessage = useCallback(async () => {
   const currentFiles = [...attachedFiles];
 
   let currentChatId = latestChatIdRef.current;
-  const isFirstMessage = !currentChatId;
+  const isFirstMessage = !currentChatId && (!selectedAgent || selectedAgent.isBuiltIn);
 
   if (onNewMessage) {
     console.log("📨 Calling onNewMessage with user message and files");
@@ -554,20 +560,36 @@ const sendMessage = useCallback(async () => {
   // (text only, files only, or both)
   const apiText = hasText ? input.trim() : "[User sent files]";
 
-  const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
-    apiText
-  )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(
-    currentChatId || ''
-  )}&is_first_message=${isFirstMessage}`;
-
-  console.log("🔗 Making API call to:", url);
+  // ----- MODIFIED: Check if we're using a custom agent -----
+  let url;
+  if (selectedAgent && !selectedAgent.isBuiltIn) {
+    // This is a custom agent
+    url = `http://127.0.0.1:8000/api/custom_agents/stream/?agent_id=${encodeURIComponent(
+      selectedAgent.id
+    )}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(
+      selectedAgent.model || "gemini-flashlite"
+    )}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(
+      selectedAgent.customPrompt || ""
+    )}&text=${encodeURIComponent(apiText)}`;
+    
+    console.log("🤖 Using CUSTOM AGENT endpoint:", url);
+  } else {
+    // Regular chat
+    url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
+      apiText
+    )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(
+      currentChatId || ''
+    )}&is_first_message=${isFirstMessage}`;
+    
+    console.log("💬 Using REGULAR CHAT endpoint:", url);
+  }
 
   if (onSetLoading) onSetLoading(true);
 
   setTimeout(() => {
     makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url);
   }, 100);
-}, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading]);
+}, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent]); 
 
   // Updated makeAPIRequest - supports background streaming
   const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
@@ -753,7 +775,7 @@ const sendMessage = useCallback(async () => {
   };
 
   es.onopen = () => console.log("🔗 SSE opened:", targetChatId);
-}, [onNewMessage, onSetLoading, messages]);
+}, [onNewMessage, onSetLoading, messages, selectedAgent]);
 
 
   const handleKeyDown = useCallback((e) => {

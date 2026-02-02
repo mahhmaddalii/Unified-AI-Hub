@@ -199,13 +199,3 @@ def chat_view(request):
     response['Access-Control-Allow-Headers'] = 'Cache-Control'
     return response
 
-
-
-
-
-
-
-
-
-
-

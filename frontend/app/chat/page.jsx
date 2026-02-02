@@ -28,11 +28,6 @@ function ChatPageContent() {
   const [loadingChats, setLoadingChats] = useState(new Set());
   const [showAgentDashboard, setShowAgentDashboard] = useState(false);
   
-  // ========== REMOVE THESE LINES ==========
-  // const [selectedAgent, setSelectedAgent] = useState(null);
-  // const [showCreateAgentModal, setShowCreateAgentModal] = useState(false);
-  // const [editingAgent, setEditingAgent] = useState(null);
-
   const latestActiveChatId = useRef(null);
   const pendingAIMessages = useRef(new Map());
 
@@ -91,43 +86,73 @@ function ChatPageContent() {
     return loadingChats.has(chatId);
   }, [loadingChats]);
 
- const addMessageToChat = useCallback((chatId, message) => {
-  setChatMessages(prev => {
-    const current = prev[chatId] || [];
+  const addMessageToChat = useCallback((chatId, message) => {
+    setChatMessages(prev => {
+      const current = prev[chatId] || [];
 
-    // Prefer realAssistantId if present (from background), else fall back to id
-    const targetId = message.realAssistantId || message.id;
+      // Prefer realAssistantId if present (from background), else fall back to id
+      const targetId = message.realAssistantId || message.id;
 
-    const existingIndex = current.findIndex(m => (m.realAssistantId || m.id) === targetId);
+      const existingIndex = current.findIndex(m => (m.realAssistantId || m.id) === targetId);
 
-    if (existingIndex !== -1) {
-      const existing = current[existingIndex];
+      if (existingIndex !== -1) {
+        const existing = current[existingIndex];
 
-      // Skip if completely identical (prevents unnecessary re-renders)
-      if (existing.text === message.text && existing.image === message.image) {
-        return prev;
+        // Skip if completely identical (prevents unnecessary re-renders)
+        if (existing.text === message.text && existing.image === message.image) {
+          return prev;
+        }
+
+        // Merge update into existing message
+        const updated = [...current];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          ...message,
+          id: targetId,              // ensure final ID is consistent
+          realAssistantId: undefined // clean up temp field
+        };
+        return { ...prev, [chatId]: updated };
       }
 
-      // Merge update into existing message
-      const updated = [...current];
-      updated[existingIndex] = {
-        ...updated[existingIndex],
+      // New message (use real ID if provided)
+      const finalMessage = {
         ...message,
-        id: targetId,              // ensure final ID is consistent
-        realAssistantId: undefined // clean up temp field
+        id: targetId,
+        realAssistantId: undefined // clean up
       };
-      return { ...prev, [chatId]: updated };
+      return { ...prev, [chatId]: [...current, finalMessage] };
+    });
+  }, []);
+
+  // ────────────────────────────────────────────────
+  // NEW: Stable chat for agents
+  // ────────────────────────────────────────────────
+  const getOrCreateAgentChat = useCallback((agent) => {
+    if (!agent) return null;
+
+    const existingChat = chats.find(chat => chat.agentId === agent.id);
+    if (existingChat) {
+      return existingChat;
     }
 
-    // New message (use real ID if provided)
-    const finalMessage = {
-      ...message,
-      id: targetId,
-      realAssistantId: undefined // clean up
+    // Stable deterministic ID
+    const stableChatId = `agent-chat-${agent.id}`;
+
+    const newChat = {
+      id: stableChatId,
+      name: `Chat with ${agent.name}`,
+      lastActive: "Just now",
+      agentId: agent.id
     };
-    return { ...prev, [chatId]: [...current, finalMessage] };
-  });
-}, []);
+
+    setChats(prev => [newChat, ...prev]);
+    setChatMessages(prev => ({
+      ...prev,
+      [stableChatId]: []
+    }));
+
+    return newChat;
+  }, [chats]);
 
   const createNewChat = useCallback((firstMessage, agentId = null) => {
     const newChatId = uuidv4();
@@ -155,7 +180,7 @@ function ChatPageContent() {
     }));
 
     return newChatId;
-  }, [contextSelectedAgent]); // Use contextSelectedAgent
+  }, [contextSelectedAgent]);
 
   const handleSelectChat = useCallback((chatId) => {
     const selectedChat = chats.find(chat => chat.id === chatId);
@@ -200,66 +225,13 @@ function ChatPageContent() {
       return;
     }
     
-    // Auto-redirect to chat for both built-in and custom agents
-    if (agent.isBuiltIn) {
-      const existingChat = chats.find(chat => chat.agentId === agent.id);
-      if (existingChat) {
-        handleSelectChat(existingChat.id);
-        setShowAgentDashboard(false);
-      } else {
-        // Create a new chat for built-in agent
-        const newChatId = uuidv4();
-        const newChat = {
-          id: newChatId,
-          name: `Chat with ${agent.name}`,
-          lastActive: "Just now",
-          agentId: agent.id
-        };
-        
-        setChats(prev => [newChat, ...prev]);
-        setActiveChatId(newChatId);
-        latestActiveChatId.current = newChatId;
-        setHasPrompt(false); // No messages yet
-        setShowAgentDashboard(false);
-        
-        // Create empty messages for this chat
-        setChatMessages(prev => ({
-          ...prev,
-          [newChatId]: []
-        }));
-      }
-    } else {
-      // For custom agents, always create new chat or use existing
-      const existingChat = chats.find(chat => 
-        chat.agentId === agent.id
-      );
-      
-      if (existingChat) {
-        handleSelectChat(existingChat.id);
-        setShowAgentDashboard(false);
-      } else {
-        const newChatId = uuidv4();
-        const newChat = {
-          id: newChatId,
-          name: `Chat with ${agent.name}`,
-          lastActive: "Just now",
-          agentId: agent.id
-        };
-        
-        setChats(prev => [newChat, ...prev]);
-        setActiveChatId(newChatId);
-        latestActiveChatId.current = newChatId;
-        setHasPrompt(false); // No messages yet
-        setShowAgentDashboard(false);
-        
-        // Create empty messages for this chat
-        setChatMessages(prev => ({
-          ...prev,
-          [newChatId]: []
-        }));
-      }
+    // FIXED: Use stable chat for both built-in and custom agents
+    const agentChat = getOrCreateAgentChat(agent);
+    if (agentChat) {
+      handleSelectChat(agentChat.id);
+      setShowAgentDashboard(false);
     }
-  }, [chats, isMobile, handleSelectChat, contextSetSelectedAgent]);  
+  }, [isMobile, getOrCreateAgentChat, handleSelectChat, contextSetSelectedAgent]);  
 
   const handleAgentCreated = useCallback((newAgent) => {
     console.log("Agent created in parent:", newAgent);
@@ -329,42 +301,38 @@ function ChatPageContent() {
   }, []);
 
   const handleNewMessage = useCallback((message) => {
-  const targetChatId = message.chatId || latestActiveChatId.current;
+    const targetChatId = message.chatId || latestActiveChatId.current;
 
-  if (message.role === "assistant" && !targetChatId) {
-    console.warn("No chatId for assistant message:", message);
-    return { chatId: null, setLoading: false };
-  }
+    if (message.role === "assistant" && !targetChatId) {
+      console.warn("No chatId for assistant message:", message);
+      return { chatId: null, setLoading: false };
+    }
 
-  if (message.role === "user") {
-    if (contextSelectedAgent) {
-      if (contextSelectedAgent.isBuiltIn) {
-        const existingChat = chats.find(chat => chat.agentId === contextSelectedAgent.id);
-        
-        if (existingChat) {
-          setActiveChatId(existingChat.id);
-          latestActiveChatId.current = existingChat.id;
-          setHasPrompt(true);
-          setShowAgentDashboard(false);
-          
-          addMessageToChat(existingChat.id, message);
-          setChats(prev => prev.map(chat => 
-            chat.id === existingChat.id 
-              ? { ...chat, lastActive: "Just now" }
-              : chat
-          ));
-          
-          setChatLoading(existingChat.id, true);
-          return { chatId: existingChat.id, setLoading: true };
-        } else {
-          const newChatId = createNewChat(message, contextSelectedAgent.id);
-          latestActiveChatId.current = newChatId;
-          setChatLoading(newChatId, true);
-          return { chatId: newChatId, setLoading: true };
-        }
-      } else {
+    if (message.role === "user") {
+      // ─── FIXED: Agent mode - use stable chat ───
+      if (contextSelectedAgent) {
+        const agentChat = getOrCreateAgentChat(contextSelectedAgent);
+        const finalChatId = agentChat.id;
+
+        setActiveChatId(finalChatId);
+        latestActiveChatId.current = finalChatId;
+        setHasPrompt(true);
+        setShowAgentDashboard(false);
+
+        addMessageToChat(finalChatId, message);
+        setChats(prev => prev.map(chat => 
+          chat.id === finalChatId 
+            ? { ...chat, lastActive: "Just now" }
+            : chat
+        ));
+        setChatLoading(finalChatId, true);
+
+        return { chatId: finalChatId, setLoading: true };
+      }
+      // ─── Normal chat mode ───
+      else {
         if (!targetChatId) {
-          const newChatId = createNewChat(message, contextSelectedAgent.id);
+          const newChatId = createNewChat(message);
           latestActiveChatId.current = newChatId;
           setChatLoading(newChatId, true);
           return { chatId: newChatId, setLoading: true };
@@ -380,58 +348,40 @@ function ChatPageContent() {
           return { chatId: targetChatId, setLoading: true };
         }
       }
-    } else {
-      if (!targetChatId) {
-        const newChatId = createNewChat(message);
-        latestActiveChatId.current = newChatId;
-        setChatLoading(newChatId, true);
-        return { chatId: newChatId, setLoading: true };
+    }
+    
+    if (message.role === "assistant") {
+      if (targetChatId) {
+        const existingMessages = chatMessages[targetChatId] || [];
+        const messageExists = existingMessages.some(m => m.id === message.id);
+
+        if (!messageExists) {
+          addMessageToChat(targetChatId, message);
+          setChats(prev => prev.map(chat => 
+            chat.id === targetChatId 
+              ? { ...chat, lastActive: "Just now" }
+              : chat
+          ));
+        } else {
+          addMessageToChat(targetChatId, message);
+        }
+
+        setChatLoading(targetChatId, false);
       } else {
-        addMessageToChat(targetChatId, message);
-        setHasPrompt(true);
-        setChats(prev => prev.map(chat => 
-          chat.id === targetChatId 
-            ? { ...chat, lastActive: "Just now" }
-            : chat
-        ));
-        setChatLoading(targetChatId, true);
-        return { chatId: targetChatId, setLoading: true };
+        pendingAIMessages.current.set(message.id, message);
       }
     }
-  }
-  
-  if (message.role === "assistant") {
-    if (targetChatId) {
-      const existingMessages = chatMessages[targetChatId] || [];
-      const messageExists = existingMessages.some(m => m.id === message.id);
 
-      if (!messageExists) {
-        addMessageToChat(targetChatId, message);
-        setChats(prev => prev.map(chat => 
-          chat.id === targetChatId 
-            ? { ...chat, lastActive: "Just now" }
-            : chat
-        ));
-      } else {
-        addMessageToChat(targetChatId, message);
-      }
-
-      setChatLoading(targetChatId, false);
-    } else {
-      pendingAIMessages.current.set(message.id, message);
+    if (message.title) {
+      setChats(prev => prev.map(chat => 
+        chat.id === targetChatId 
+          ? { ...chat, name: message.title }
+          : chat
+      ));
     }
-  }
 
-  if (message.title) {
-    setChats(prev => prev.map(chat => 
-      chat.id === targetChatId 
-        ? { ...chat, name: message.title }
-        : chat
-    ));
-  }
-
-  return { chatId: targetChatId, setLoading: false };
-}, [createNewChat, addMessageToChat, chatMessages, setChatLoading, contextSelectedAgent, chats]);
+    return { chatId: targetChatId, setLoading: false };
+  }, [createNewChat, addMessageToChat, chatMessages, setChatLoading, contextSelectedAgent, chats, getOrCreateAgentChat]);
 
   const updateChats = useCallback((newChats) => {
     setChats(newChats);
@@ -508,8 +458,6 @@ function ChatPageContent() {
                       onUpdateAgent={handleAgentUpdated}
                       onDeleteAgent={handleAgentDeleted}
                       onToggleAgentStatus={handleAgentStatusToggled}
-                      // REMOVED: No need to pass modal-related props
-                      // The modal is controlled by AgentContext
                     />
                   </div>
                 ) : (
