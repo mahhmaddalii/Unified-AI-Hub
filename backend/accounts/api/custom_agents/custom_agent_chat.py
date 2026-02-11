@@ -6,6 +6,8 @@ from langchain_tavily import TavilySearch
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain.tools import Tool
+from accounts.api.chat.documents import load_vectorstore
 
 load_dotenv()
 
@@ -125,12 +127,23 @@ PURPOSE_MODEL_MAP = {
 }
 
 ROLE_PROMPTS = {
-    "general": "You are a concise, accurate, and helpful assistant. Prioritize clarity and correctness.",
-    "support": "You are a customer support specialist. Be friendly, patient, and efficient.",
-    "code": "You are a code assistant. Always use code blocks with proper language tags for code and explain briefly.",
-    "creative": "You are a creative writing assistant. Be imaginative and expressive.",
-    "technical": "You are a technical expert. Be precise, structured, and step-by-step. Avoid assumptions.",
-    "research": "You are a research assistant. Be thorough and evidence-based. Distinguish facts from assumptions.",
+    "general": """You are a concise, accurate, and helpful assistant. Prioritize clarity and correctness.
+Documents MAY have been uploaded in this conversation. When the user mentions "document", "pdf", "uploaded", "file", "summary of document", "explain the document", or anything similar — ALWAYS call document_search first.""",
+    
+    "support": """You are a customer support specialist. Be friendly, patient, and efficient.
+Documents MAY have been uploaded. When the user refers to any document, file, PDF, upload, or related terms — ALWAYS call document_search first.""",
+    
+    "code": """You are a code assistant. Always use code blocks with proper language tags for code and explain briefly.
+Documents MAY have been uploaded. When the user mentions document, PDF, file, or similar — ALWAYS call document_search.""",
+    
+    "creative": """You are a creative writing assistant. Be imaginative and expressive.
+Documents MAY have been uploaded. When the user refers to documents, PDFs, files, or similar — ALWAYS call document_search first.""",
+    
+    "technical": """You are a technical expert. Be precise, structured, and step-by-step. Avoid assumptions.
+Documents MAY have been uploaded. When the user mentions any document, PDF, file, upload — ALWAYS call document_search first.""",
+    
+    "research": """You are a research assistant. Be thorough and evidence-based. Distinguish facts from assumptions.
+Documents MAY have been uploaded. When the user refers to documents, PDFs, uploaded files, or similar — ALWAYS call document_search first."""
 }
 
 
@@ -139,8 +152,8 @@ PURPOSE_PROMPTS = {
     
 # DOMAIN RULES:
 1. **Stay in {purpose} domain** - Only answer relevant questions
-2. **Documents** - Use only if relevant to {purpose}, else ignore
-3. **Search** - Auto-use for time-sensitive or {purpose}-specific info
+2. **Documents** - Documents MAY exist in this chat. ALWAYS call document_search when user mentions document, pdf, uploaded file, summary of document, explain document, file content, or similar.
+3. **Search** - Auto-use Tavily for time-sensitive or {purpose}-specific info
 4. **Custom prompts** - Follow if they fit your {purpose} role
 
 {CORE_FORMATTING_RULES}"""
@@ -193,28 +206,45 @@ def get_agent_model(model_selection, purpose, is_auto_selected):
     else:
         return model_selection if model_selection in MODEL_MAP else "gemini-flashlite"
 
+
+# -------------------- Document Search Tool --------------------
+def document_search(query: str) -> str:
+    """Search uploaded PDF documents for relevant information."""
+    vectorstore = load_vectorstore()
+    if not vectorstore:
+        return "No documents have been uploaded in this conversation."
+    
+    results = vectorstore.similarity_search_with_score(query, k=3)  # increased to k=3
+    if not results:
+        return "No relevant documents found for your query."
+    
+    relevant = []
+    for doc, score in results:
+        if score > 0.65:  # slightly lower threshold for better recall
+            relevant.append(doc.page_content.strip())
+    
+    if relevant:
+        return "Relevant document content:\n" + "\n\n".join(relevant)
+    
+    return "No sufficiently relevant document content found."
+
+document_search_tool = Tool.from_function(
+    func=document_search,
+    name="document_search",
+    description="Search uploaded PDF documents for relevant information. Use when query relates to document content."
+)
+
+
 def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is_auto_selected, custom_prompt=""):
-    """
-    Main function - similar to get_bot_response but for custom agents
-    Each agent_id has only one chat history
-    """
     try:
-        # Get the single chat history for this agent
         chat_history = get_custom_agent_history(agent_id)
-        
-        # Determine which model to use
         model_to_use = get_agent_model(model_selection, purpose, is_auto_selected)
-        
-        # Build final system prompt
         system_prompt = build_final_system_prompt(purpose, custom_prompt)
-        
-        # Initialize model
         model = init_custom_agent_model(model_to_use)
         
-        # Search tool (same as regular chat)
         search_tool = TavilySearch(max_results=3)
+        tools = [search_tool, document_search_tool]
         
-        # Create prompt with custom system message
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             MessagesPlaceholder(variable_name="chat_history"),
@@ -222,35 +252,39 @@ def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is
             MessagesPlaceholder(variable_name="agent_scratchpad")
         ])
         
-        # Create agent (same as regular chat)
-        agent = create_openai_tools_agent(model, [search_tool], prompt)
-        agent_executor = AgentExecutor(agent=agent, tools=[search_tool], verbose=True)
+        agent = create_openai_tools_agent(model, tools, prompt)
+        agent_executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=True,
+            handle_parsing_errors=True
+        )
         
-        # Add to history
         chat_history.add_user_message(user_input)
         
         print(f"=== CUSTOM AGENT CHAT ===")
         print(f"Agent ID: {agent_id}")
         print(f"Model: {model_to_use}")
-        print(f"purpose: {purpose}")
-        print(f"custom prompt: {custom_prompt}")
+        print(f"Purpose: {purpose}")
+        print(f"Custom prompt: {custom_prompt}")
         
-        
+        # Run agent (tools are called here)
         result = agent_executor.invoke({
             "input": user_input,
             "chat_history": chat_history.messages,
             "agent_scratchpad": []
         })
         
-        response = result["output"]
-        chat_history.add_ai_message(response)
+        final_answer = result["output"]
         
+        # Stream the final answer word-by-word
+        words = final_answer.split(" ")
+        for i, word in enumerate(words):
+            yield word + " "
+            import time
+            time.sleep(0.004) 
         
-        tokens = re.findall(r'\S+\s*', response)
-        
-        for token in tokens:
-            if token.strip():
-                yield token
+        chat_history.add_ai_message(final_answer)
         
     except Exception as e:
         print(f"[ERROR] Custom agent {agent_id} failed: {str(e)}")
