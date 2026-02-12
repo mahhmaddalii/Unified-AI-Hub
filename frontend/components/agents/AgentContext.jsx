@@ -7,7 +7,6 @@ const BUILT_IN_AGENTS = [
   {
     id: "builtin-comsats",
     name: "Comsats Assistant",
-    model: "deepseek-chat",
     status: "active",
     conversations: 0,
     satisfaction: 95,
@@ -21,7 +20,6 @@ const BUILT_IN_AGENTS = [
   {
     id: "builtin-cricket",
     name: "Cricket Expert",
-    model: "gpt5-nano",
     status: "active",
     conversations: 0,
     satisfaction: 92,
@@ -35,7 +33,6 @@ const BUILT_IN_AGENTS = [
   {
     id: "builtin-politics",
     name: "Politics Analyst",
-    model: "claude-3 haiku",
     status: "active",
     conversations: 0,
     satisfaction: 90,

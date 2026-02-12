@@ -8,6 +8,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { toast } from 'react-toastify';
+
 
 export default function ChatWindow({
   chatId,
@@ -18,6 +20,8 @@ export default function ChatWindow({
   onSetLoading,
   selectedAgent = null
 }) {
+console.log("🔥 ChatWindow MOUNTED/RENDER with chatId:", chatId, "selectedAgent:", selectedAgent?.name);
+
   const [messages, setMessages] = useState(propMessages);
   const [input, setInput] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
@@ -25,6 +29,27 @@ export default function ChatWindow({
   const [selectedModel, setSelectedModel] = useState("gemini-flashlite");
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [showModelDialog, setShowModelDialog] = useState(false);
+    const [isAgentDeactivated, setIsAgentDeactivated] = useState(false);
+
+  // Model icons mapping (add this after your imports)
+const modelIcons = {
+  "gemini-flashlite": <Gemini.Color size={16} />,
+  "deepseek-chat": <DeepSeek.Color size={16} />,
+  "claude-3 haiku": <Claude.Color size={16} />,
+  "gpt5-nano": <OpenAI size={16} />,
+  "gemini-2.5-flash-image": <Gemini.Color size={16} />,
+  "mistral nemo": <Mistral.Color size={16} />,
+};
+
+// Model display names
+const modelDisplayNames = {
+  "gemini-flashlite": "Gemini",
+  "deepseek-chat": "DeepSeek",
+  "claude-3 haiku": "Claude",
+  "gpt5-nano": "GPT-5",
+  "gemini-2.5-flash-image": "Gemini Vision",
+  "mistral nemo": "Mistral",
+};
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -36,6 +61,30 @@ export default function ChatWindow({
   const chatStatesRef = useRef(new Map()); // chatId → { assistantMessage, buffer, hasNotifiedParent, receivedFirstMessage, hasImage, lastUpdateTime }
   const latestChatIdRef = useRef(chatId);
   const currentAssistantIdRef = useRef(null);
+
+// 🟢 FIX: Force immediate UI update when chatId changes and we have an agent
+  useEffect(() => {
+    if (chatId && chatId.startsWith('agent-chat-') && selectedAgent) {
+      console.log("✅ Agent chat detected, forcing agent UI for:", selectedAgent.name);
+      // This forces a re-render with the correct UI
+      // No state change needed - just the condition triggers re-render
+    }
+  }, [chatId, selectedAgent]);
+
+useEffect(() => {
+    if (selectedAgent && !selectedAgent.isBuiltIn) {
+      setIsAgentDeactivated(selectedAgent.status !== 'active');
+      
+      if (selectedAgent.status !== 'active') {
+       ;
+      } else {
+        setStatusMsg("");
+      }
+    } else {
+      setIsAgentDeactivated(false);
+      setStatusMsg("");
+    }
+  }, [selectedAgent]);
 
   useEffect(() => {
   console.log("🤖 ChatWindow selectedAgent:", selectedAgent);
@@ -412,6 +461,12 @@ const renderMessageContent = useCallback((content) => {
   };
 
 const sendMessage = useCallback(async () => {
+  // 🟢 NEW: Block sending if agent is deactivated
+  if (selectedAgent && !selectedAgent.isBuiltIn && selectedAgent.status !== 'active') {
+    toast.error(`❌ Cannot send message: ${selectedAgent.name} is deactivated. Please activate it first.`);
+    return;
+  }
+
   const hasText = input.trim().length > 0;
   const hasFiles = attachedFiles.length > 0;
 
@@ -440,7 +495,7 @@ const sendMessage = useCallback(async () => {
     input: input.trim(),
     hasFiles,
     currentChatId: latestChatIdRef.current,
-    selectedAgent: selectedAgent // Add this for debugging
+    selectedAgent: selectedAgent
   });
 
   setMessages(prev => [...prev, userMsg]);
@@ -471,13 +526,10 @@ const sendMessage = useCallback(async () => {
   }
 
   // Trigger AI response whenever user sends something valid
-  // (text only, files only, or both)
   const apiText = hasText ? input.trim() : "[User sent files]";
 
-  // ----- MODIFIED: Check if we're using a custom agent -----
   let url;
   if (selectedAgent && !selectedAgent.isBuiltIn) {
-    // This is a custom agent
     url = `http://127.0.0.1:8000/api/custom_agents/stream/?agent_id=${encodeURIComponent(
       selectedAgent.id
     )}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(
@@ -488,7 +540,6 @@ const sendMessage = useCallback(async () => {
     
     console.log("🤖 Using CUSTOM AGENT endpoint:", url);
   } else {
-    // Regular chat
     url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
       apiText
     )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(
@@ -503,7 +554,7 @@ const sendMessage = useCallback(async () => {
   setTimeout(() => {
     makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url);
   }, 100);
-}, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent]); 
+}, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent]); // No need to add toast to deps
 
   // Updated makeAPIRequest - supports background streaming
   const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
@@ -1018,18 +1069,41 @@ const sendMessage = useCallback(async () => {
             input || attachedFiles.length > 0 ? "bg-purple-50" : "bg-gray-100"
           }`}
         >
+          {/* 🟢 NEW: Deactivated agent banner */}
+{isAgentDeactivated && selectedAgent && (
+  <div className="px-3 sm:px-4 mb-2">
+    <div className="max-w-4xl mx-auto">
+      <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
+      <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+  <span className="text-red-600 text-sm leading-none mt-[-6px]">⚠️</span>
+</div>
+        <div className="flex-1">
+          <p className="text-sm text-red-800 font-medium">
+            {selectedAgent.name} is deactivated
+          </p>
+          <p className="text-xs text-red-600 mt-0.5">
+            Activate this agent from the agents dashboard to continue chatting.
+          </p>
+        </div>
+        
+      </div>
+    </div>
+  </div>
+)}
           <div className="flex items-end gap-1.5 sm:gap-2 mb-2 sm:mb-3">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              className="flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none "
-              placeholder="Message AI Assistant..."
-              rows="1"
-              required={false} // Not required since files can be sent without text
-              disabled={isLoading}
-            />
+           <textarea
+  ref={textareaRef}
+  value={input}
+  onChange={handleInputChange}
+  onKeyDown={handleKeyDown}
+  className={`flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none ${
+    isAgentDeactivated ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+  }`}
+  placeholder="Message AI Assistant..."
+  rows="1"
+  required={false}
+  disabled={isLoading || isAgentDeactivated}
+/>
 
             <button
               type="button"
@@ -1063,80 +1137,109 @@ const sendMessage = useCallback(async () => {
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-0.5 sm:gap-1">
-              <button
-                type="button"
-                onClick={handleAttachClick}
-                className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors"
-                title="Attach files"
-              >
-                <svg
-                  className="h-3.5 w-3.5 sm:h-4 sm:w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                  />
-                </svg>
-              </button>
+  <div className="flex items-center gap-0.5 sm:gap-1">
+    <button
+      type="button"
+      onClick={handleAttachClick}
+      className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors"
+      title="Attach files"
+    >
+      <svg
+        className="h-3.5 w-3.5 sm:h-4 sm:w-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+        />
+      </svg>
+    </button>
 
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileSelect}
-                className="hidden"
-                multiple
-              />
+    <input
+      type="file"
+      ref={fileInputRef}
+      onChange={handleFileSelect}
+      className="hidden"
+      multiple
+    />
 
-              <button
-                type="button"
-                onClick={() => setShowModelDialog(true)}
-                className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 text-xs text-gray-700 border border-gray-200 rounded-full hover:bg-gray-50 transition-colors"
-                title="Change AI model"
-              >
-                <span className="text-xs sm:text-sm flex-shrink-0">
-                  {getCurrentModel()?.icon}
-                </span>
-                <span className="hidden sm:inline truncate max-w-[80px] lg:max-w-none">
-                  {getCurrentModel()?.name}
-                </span>
-                <svg
-                  className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-gray-400 flex-shrink-0"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            </div>
+    {/* 🟢 Show model selector OR agent badge in the same position */}
+    {!selectedAgent ? (
+  // Normal chat - Model selector with dropdown
+  <button
+    type="button"
+    onClick={() => setShowModelDialog(true)}
+    className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 text-xs text-gray-700 border border-gray-200 rounded-full hover:bg-gray-50 transition-colors h-[32px] sm:h-[36px]"
+    title="Change AI model"
+  >
+    <span className="text-xs sm:text-sm flex-shrink-0">
+      {getCurrentModel()?.icon}
+    </span>
+    <span className="hidden sm:inline truncate max-w-[80px] lg:max-w-none">
+      {getCurrentModel()?.name}
+    </span>
+    <svg
+      className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-gray-400 flex-shrink-0"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+        clipRule="evenodd"
+      />
+    </svg>
+  </button>
+) : (
+  // Agent chat - Read-only badge with sidebar icons - MATCHES MODEL BUTTON SIZE
+  <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 text-xs bg-purple-50 border border-purple-200 rounded-full shadow-sm h-[32px] sm:h-[36px]">
+    <span className="text-xs sm:text-sm flex-shrink-0">
+      {selectedAgent.isBuiltIn ? (
+        <span className="text-purple-600 text-base">{selectedAgent.icon || "🤖"}</span>
+      ) : (
+        <span className="flex items-center">
+          {modelIcons[selectedAgent.model] || <Gemini.Color size={16} />}
+        </span>
+      )}
+    </span>
+    <span className="text-purple-700 font-medium whitespace-nowrap">
+      {selectedAgent.name}
+    </span>
+    
+    {/* Model badge for custom agents - styled like model button text */}
+    {!selectedAgent.isBuiltIn && (
+      <span className="text-gray-500 text-[10px] sm:text-xs px-1.5 py-0.5 bg-white rounded-full border border-gray-100">
+        {modelDisplayNames[selectedAgent.model] || "Gemini"}
+      </span>
+    )}
+  </div>
+)}</div>
 
-            <button
-              type="button"
-              onClick={sendMessage}
-              disabled={
-                isLoading || (!input.trim() && attachedFiles.length === 0)
-              }
-              className="flex items-center justify-center bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0"
-              title="Send message"
-            >
-              <Image
-                src="/send.png"
-                alt="Send"
-                width={14}
-                height={14}
-                className="brightness-0 invert sm:w-4 sm:h-4"
-              />
-            </button>
-          </div>
+  {/* Send button - ALWAYS outside the ternary */}
+  <button
+    type="button"
+    onClick={sendMessage}
+    disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isAgentDeactivated}
+    className={`flex items-center justify-center p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0 ${
+      isAgentDeactivated 
+        ? 'bg-gray-400 cursor-not-allowed' 
+        : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+    }`}
+    title={isAgentDeactivated ? `${selectedAgent?.name} is deactivated` : "Send message"}
+  >
+    <Image
+      src="/send.png"
+      alt="Send"
+      width={14}
+      height={14}
+      className="brightness-0 invert sm:w-4 sm:h-4"
+    />
+  </button>
+</div>
         </div>
       </div>
 
