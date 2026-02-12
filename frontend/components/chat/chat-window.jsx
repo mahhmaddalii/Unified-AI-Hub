@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import Image from "next/image";
 import { Meta, OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
@@ -9,13 +9,14 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-export default function ChatWindow({ 
-  chatId, 
+export default function ChatWindow({
+  chatId,
   messages: propMessages = [],
   onNewMessage,
   hasActiveChat,
-  isLoading, // Loading state from parent
-  onSetLoading // Callback to update loading state in parent
+  isLoading,
+  onSetLoading,
+  selectedAgent = null
 }) {
   const [messages, setMessages] = useState(propMessages);
   const [input, setInput] = useState("");
@@ -24,45 +25,43 @@ export default function ChatWindow({
   const [selectedModel, setSelectedModel] = useState("gemini-flashlite");
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [showModelDialog, setShowModelDialog] = useState(false);
-  
+
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const modelDialogRef = useRef(null);
 
-  // Track current streaming connection PER CHAT
-  const currentStreamRef = useRef(null);
+  // Track ALL active streams and per-chat state
+  const activeStreamsRef = useRef(new Map()); // chatId → EventSource
+  const chatStatesRef = useRef(new Map()); // chatId → { assistantMessage, buffer, hasNotifiedParent, receivedFirstMessage, hasImage, lastUpdateTime }
   const latestChatIdRef = useRef(chatId);
   const currentAssistantIdRef = useRef(null);
 
-  // Update the ref whenever chatId changes
+  useEffect(() => {
+  console.log("🤖 ChatWindow selectedAgent:", selectedAgent);
+}, [selectedAgent]);
+
+  // Update latest chatId ref
   useEffect(() => {
     latestChatIdRef.current = chatId;
-    console.log("🆔 chatId updated:", chatId);
-    
-    // Close any existing stream when chat changes
-    if (currentStreamRef.current) {
-      currentStreamRef.current.close();
-      currentStreamRef.current = null;
-    }
+    console.log("🆔 Active chatId changed to:", chatId);
   }, [chatId]);
 
-  // Update local messages when prop messages change
+  // Update local messages when props change
   useEffect(() => {
     setMessages(propMessages);
   }, [propMessages, chatId]);
 
-  // Clean up streaming when component unmounts
+  // Cleanup ALL streams and states on unmount
   useEffect(() => {
     return () => {
-      if (currentStreamRef.current) {
-        currentStreamRef.current.close();
-        currentStreamRef.current = null;
-      }
+      activeStreamsRef.current.forEach(stream => stream?.close());
+      activeStreamsRef.current.clear();
+      chatStatesRef.current.clear();
     };
   }, []);
 
-  // AI Models and prompt cards
+  // AI Models and prompt cards (unchanged)
   const aiModels = [
     { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={24} /> },
     { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={24} /> },
@@ -109,324 +108,238 @@ export default function ChatWindow({
     return fileTypes[extension] || 'File';
   };
 
-  // Custom components for ReactMarkdown
-  const MarkdownComponents = {
-    // Headers
-    h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{children}</h1>,
-    h2: ({ children }) => <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900">{children}</h2>,
-    h3: ({ children }) => <h3 className="text-lg font-semibold mt-4 mb-2 text-gray-900">{children}</h3>,
-    h4: ({ children }) => <h4 className="text-base font-semibold mt-3 mb-2 text-gray-900">{children}</h4>,
-    
-    // Paragraphs
-    p: ({ children }) => <p className="mb-4 leading-relaxed text-gray-800">{children}</p>,
-    
-    // Lists
-    ul: ({ children }) => <ul className="list-disc ml-6 mb-4 space-y-1 text-gray-800">{children}</ul>,
-    ol: ({ children }) => <ol className="list-decimal ml-6 mb-4 space-y-1 text-gray-800">{children}</ol>,
-    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-    
-    // Code blocks
-    code: ({ node, inline, className, children, ...props }) => {
-      const match = /language-(\w+)/.exec(className || '');
-      const language = match ? match[1] : '';
-      
-      if (!inline && language) {
-        return (
-          <div className="my-4 rounded-lg overflow-hidden border border-gray-200">
-            <div className="bg-gray-800 text-gray-200 px-4 py-2 text-sm font-mono flex justify-between items-center">
-              <span className="uppercase">{language}</span>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
-                }}
-                className="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition-colors"
-              >
-                Copy
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <SyntaxHighlighter
-                style={atomDark}
-                language={language}
-                PreTag="div"
-                className="text-sm !m-0"
-                customStyle={{ 
-                  margin: 0, 
-                  borderRadius: 0,
-                  background: '#1f2937'
-                }}
-                showLineNumbers={true}
-                wrapLongLines={false}
-                {...props}
-              >
-                {String(children).replace(/\n$/, '')}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-        );
-      } else if (inline) {
-        return (
-          <code className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
-            {children}
-          </code>
-        );
-      } else {
-        // For code blocks without language specification
-        return (
-          <div className="my-4 rounded-lg overflow-hidden border border-gray-200">
-            <div className="bg-gray-800 text-gray-200 px-4 py-2 text-sm font-mono">
-              Code
-            </div>
-            <div className="overflow-x-auto">
-              <pre className="bg-gray-900 text-gray-100 p-4 text-sm font-mono m-0">
-                <code>{children}</code>
-              </pre>
-            </div>
-          </div>
-        );
-      }
-    },
-    
-    // Blockquotes
-    blockquote: ({ children }) => (
-      <blockquote className="border-l-4 border-purple-500 pl-4 my-4 italic text-gray-600 bg-purple-50 py-2 rounded-r">
-        {children}
-      </blockquote>
-    ),
-    
-    // Tables
-    table: ({ children }) => (
-      <div className="overflow-x-auto my-4 border border-gray-200 rounded-lg">
-        <table className="min-w-full divide-y divide-gray-200">{children}</table>
-      </div>
-    ),
-    thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
-    tbody: ({ children }) => <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>,
-    tr: ({ children }) => <tr>{children}</tr>,
-    th: ({ children }) => <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{children}</th>,
-    td: ({ children }) => <td className="px-4 py-3 text-sm text-gray-800">{children}</td>,
-    
-    // Links
-    a: ({ href, children }) => (
-      <a 
-        href={href} 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="text-purple-600 hover:text-purple-800 underline"
-      >
-        {children}
-      </a>
-    ),
-    
-    // Strong/Bold
-    strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
-    
-    // Emphasis/Italic
-    em: ({ children }) => <em className="italic text-gray-700">{children}</em>,
-  };
+// ────────────────────────────────────────────────
+// PROFESSIONAL MARKDOWN COMPONENTS with Copy-to-Clipboard + Feedback
+const MarkdownComponents = {
+  // Headers
+  h1: ({ children }) => <h1 className="text-2xl font-bold mt-7 mb-4 text-gray-900 border-b pb-2">{children}</h1>,
+  h2: ({ children }) => {
+    if (children?.toString().trim().toLowerCase().includes('sources')) {
+      return (
+        <h2 className="text-xl font-semibold mt-9 mb-4 text-gray-900 flex items-center gap-3 border-t pt-6 pb-1">
+          <span className="text-purple-600 text-2xl">📚</span>
+          <span>{children}</span>
+        </h2>
+      );
+    }
+    return <h2 className="text-xl font-bold mt-7 mb-3 text-gray-900">{children}</h2>;
+  },
+  h3: ({ children }) => <h3 className="text-lg font-semibold mt-6 mb-2 text-gray-900">{children}</h3>,
+  h4: ({ children }) => <h4 className="text-base font-semibold mt-5 mb-2 text-gray-900">{children}</h4>,
 
-  // Function to render formatted message content
-  const renderMessageContent = useCallback((content) => {
-    if (!content) return null;
+  // Paragraphs
+  p: ({ children }) => <p className="mb-4 leading-7 text-gray-800">{children}</p>,
 
-    // Custom markdown parser that handles inline code and bold text
-    const parseMarkdown = (text) => {
-      const lines = text.split('\n');
-      const elements = [];
-      let codeBlockIndex = 0;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        
-        // Skip empty lines
-        if (line.trim() === '') {
-          elements.push(<br key={`br-${i}`} />);
-          continue;
-        }
-        
-        // Check for headers
-        if (line.startsWith('# ')) {
-          elements.push(<h1 key={`h1-${i}`} className="text-2xl font-bold mt-6 mb-4 text-gray-900 border-b pb-2">{parseInlineText(line.substring(2))}</h1>);
-        } else if (line.startsWith('## ')) {
-          elements.push(<h2 key={`h2-${i}`} className="text-xl font-bold mt-5 mb-3 text-gray-900">{parseInlineText(line.substring(3))}</h2>);
-        } else if (line.startsWith('### ')) {
-          elements.push(<h3 key={`h3-${i}`} className="text-lg font-semibold mt-4 mb-2 text-gray-900">{parseInlineText(line.substring(4))}</h3>);
-        } else if (line.startsWith('#### ')) {
-          elements.push(<h4 key={`h4-${i}`} className="text-base font-semibold mt-3 mb-2 text-gray-900">{parseInlineText(line.substring(5))}</h4>);
-        } 
-        // Check for code blocks
-        else if (line.startsWith('```')) {
-          const language = line.substring(3).trim();
-          let codeContent = '';
-          i++;
-          
-          while (i < lines.length && !lines[i].startsWith('```')) {
-            codeContent += lines[i] + '\n';
-            i++;
-          }
-          
-          const currentIndex = codeBlockIndex;
-          codeBlockIndex++;
-          
-          elements.push(
-            <div key={`code-${currentIndex}`} className="my-4 rounded-lg overflow-hidden border border-gray-800 shadow-lg">
-              <div className="bg-gray-900 text-gray-200 px-4 py-3 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-300 font-mono">
-                    {language.toUpperCase() || 'CODE'}
-                  </span>
-                </div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(codeContent.trim());
-                    // Create a temporary state for copied feedback
-                    const btn = document.querySelector(`[data-code-index="${currentIndex}"]`);
-                    if (btn) {
-                      const originalText = btn.innerHTML;
-                      btn.innerHTML = '<span class="flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>Copied!</span></span>';
-                      setTimeout(() => {
-                        btn.innerHTML = originalText;
-                      }, 2000);
-                    }
-                  }}
-                  data-code-index={currentIndex}
-                  className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-md transition-all duration-200"
-                >
+  // Lists
+  ul: ({ children }) => <ul className="list-disc pl-6 mb-5 space-y-2 text-gray-800">{children}</ul>,
+  ol: ({ children }) => (
+    <ol className="list-decimal pl-8 mb-5 space-y-2 text-gray-800 marker:text-purple-600 marker:font-bold">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => {
+    const isSource = typeof children === 'string' && 
+                     (children.includes('[Read more]') || children.includes('http'));
+    
+    return (
+      <li className={`leading-7 ${isSource ? 'bg-purple-50/70 p-3.5 rounded-lg border border-purple-100 mb-3' : ''}`}>
+        {children}
+      </li>
+    );
+  },
+
+  // ─── CODE BLOCKS with Copy Button + "Copied!" feedback ───
+  code({ node, inline, className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '');
+    
+    if (!inline && match) {
+      const [copied, setCopied] = React.useState(false);
+
+      const handleCopy = () => {
+        navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000); // revert after 2 seconds
+      };
+
+      return (
+        <div className="my-6 rounded-xl overflow-hidden border border-gray-200 shadow-sm relative group">
+          <div className="bg-gray-800 text-gray-200 px-4 py-2.5 text-sm font-mono flex justify-between items-center">
+            <span className="uppercase font-medium">{match[1]}</span>
+            <button
+              onClick={handleCopy}
+              className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded transition-colors flex items-center gap-1.5"
+              title="Copy code"
+            >
+              {copied ? (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Copied!</span>
+                </>
+              ) : (
+                <>
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                   <span>Copy</span>
-                </button>
-              </div>
-              <div className="relative">
-                <SyntaxHighlighter
-                  style={atomDark}
-                  language={language.toLowerCase()}
-                  PreTag="div"
-                  className="text-sm !m-0"
-                  customStyle={{ 
-                    margin: 0,
-                    padding: '1.25rem',
-                    background: '#111827',
-                    fontSize: '0.875rem',
-                    lineHeight: '1.5',
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
-                  }}
-                  showLineNumbers={true}
-                  lineNumberStyle={{
-                    color: '#6B7280',
-                    minWidth: '3em',
-                    paddingRight: '1em',
-                    textAlign: 'right',
-                    userSelect: 'none'
-                  }}
-                  wrapLines={true}
-                  lineProps={{
-                    style: {
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word'
-                    }
-                  }}
-                >
-                  {codeContent.trim()}
-                </SyntaxHighlighter>
-              </div>
-            </div>
-          );
-        }
-        // Regular text with inline formatting
-        else {
-          elements.push(
-            <div key={`p-${i}`} className="mb-4 leading-relaxed text-gray-800">
-              {parseInlineText(line)}
-            </div>
-          );
-        }
-      }
-      
-      return elements;
-    };
+                </>
+              )}
+            </button>
+          </div>
+          <SyntaxHighlighter
+            style={atomDark}
+            language={match[1]}
+            PreTag="div"
+            className="text-sm !m-0"
+            customStyle={{
+              margin: 0,
+              borderRadius: 0,
+              background: '#1f2937',
+              padding: '1.25rem'
+            }}
+            showLineNumbers
+            wrapLongLines={false}
+            {...props}
+          >
+            {String(children).replace(/\n$/, '')}
+          </SyntaxHighlighter>
+        </div>
+      );
+    }
 
-    // Helper function to parse inline formatting (bold, code, etc.)
-    const parseInlineText = (text) => {
-      const parts = [];
-      let lastIndex = 0;
-      
-      // Process bold text (**bold**)
-      const boldRegex = /\*\*([^*]+)\*\*/g;
-      let match;
-      
-      // First collect all matches
-      const matches = [];
-      while ((match = boldRegex.exec(text)) !== null) {
-        matches.push({
-          type: 'bold',
-          start: match.index,
-          end: match.index + match[0].length,
-          content: match[1]
-        });
-      }
-      
-      // Also collect inline code matches (`code`)
-      const codeRegex = /`([^`]+)`/g;
-      while ((match = codeRegex.exec(text)) !== null) {
-        matches.push({
-          type: 'code',
-          start: match.index,
-          end: match.index + match[0].length,
-          content: match[1]
-        });
-      }
-      
-      // Sort matches by start position
-      matches.sort((a, b) => a.start - b.start);
-      
-      // Process text with matches
-      let currentIndex = 0;
-      
-      for (const match of matches) {
-        // Add text before match
-        if (match.start > currentIndex) {
-          parts.push(text.substring(currentIndex, match.start));
-        }
-        
-        // Add the match content
-        if (match.type === 'bold') {
-          parts.push(
-            <strong key={`bold-${match.start}`} className="font-semibold text-gray-900">
-              {match.content}
-            </strong>
-          );
-        } else if (match.type === 'code') {
-          parts.push(
-            <code key={`code-${match.start}`} className="bg-gray-100 rounded px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-300">
-              {match.content}
-            </code>
-          );
-        }
-        
-        currentIndex = match.end;
-      }
-      
-      // Add remaining text
-      if (currentIndex < text.length) {
-        parts.push(text.substring(currentIndex));
-      }
-      
-      // If no matches were found, return the original text
-      if (matches.length === 0) {
-        return text;
-      }
-      
-      return parts;
-    };
-    
+    // Inline code
     return (
-      <div className="markdown-content">
-        {parseMarkdown(content)}
-      </div>
+      <code className="bg-gray-100/80 rounded-md px-1.5 py-0.5 text-sm font-mono text-gray-800 border border-gray-200">
+        {children}
+      </code>
     );
-  }, []);
+  },
+
+  // Blockquotes
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-4 border-purple-500 pl-5 my-6 italic text-gray-700 bg-purple-50/60 py-3 rounded-r-lg">
+      {children}
+    </blockquote>
+  ),
+
+  // ─── TABLES with 100% WORKING Copy Icon (reads from DOM) ───
+table: ({ children }) => {
+  const [copied, setCopied] = React.useState(false);
+  const tableRef = React.useRef(null);
+
+  const handleTableCopy = () => {
+    if (!tableRef.current) return;
+
+    const table = tableRef.current;
+    let text = '';
+
+    // Get all rows (thead + tbody)
+    const rows = table.querySelectorAll('tr');
+
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('th, td');
+      const rowText = Array.from(cells)
+        .map(cell => cell.innerText.trim())
+        .filter(Boolean)
+        .join('\t');
+
+      if (rowText) {
+        text += rowText + '\n';
+      }
+    });
+
+    text = text.trim();
+
+    if (text) {
+      console.log("Copied table content:", text);
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }).catch(err => {
+        console.error("Clipboard error:", err);
+      });
+    } else {
+      console.warn("No content found in table DOM");
+    }
+  };
+
+  return (
+    <div className="overflow-x-auto my-6 border border-gray-200 rounded-lg shadow-sm relative group">
+      {/* Copy icon */}
+      <div className="absolute top-1 right-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <button
+          onClick={handleTableCopy}
+          className="p-1.5 bg-white/90 hover:bg-white rounded-md shadow-sm border border-gray-200 transition-colors"
+          title={copied ? "Copied!" : "Copy table"}
+        >
+          {copied ? (
+            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4 text-gray-600 hover:text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Attach ref to the real table */}
+      <table ref={tableRef} className="min-w-full divide-y divide-gray-200 table-auto w-full">
+        {children}
+      </table>
+    </div>
+  );
+},
+
+  thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
+  tbody: ({ children }) => <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>,
+  tr: ({ children }) => <tr className="hover:bg-gray-50 transition-colors duration-150">{children}</tr>,
+  th: ({ children }) => (
+    <th scope="col" className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider bg-gray-50">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="px-6 py-4 text-sm text-gray-800 align-top whitespace-normal break-words">
+      {children}
+    </td>
+  ),
+
+  // Links
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-purple-700 hover:text-purple-900 underline decoration-purple-300 hover:decoration-purple-600 underline-offset-2 transition-all duration-200 inline-flex items-center gap-1 group"
+    >
+      {children}
+      <svg className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+    </a>
+  ),
+
+  // Strong & Emphasis
+  strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+  em: ({ children }) => <em className="italic text-gray-700">{children}</em>,
+};
+
+// ────────────────────────────────────────────────
+// RENDER FUNCTION (unchanged from previous fix)
+const renderMessageContent = useCallback((content) => {
+  if (!content) return null;
+
+  return (
+    <div className="prose prose-sm sm:prose-base prose-headings:text-gray-900 prose-a:no-underline max-w-none break-words leading-7">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -498,336 +411,286 @@ export default function ChatWindow({
     }
   };
 
-  const sendMessage = useCallback(async () => {
-    // Allow sending messages with only files (no text)
-    if (!input.trim() && attachedFiles.length === 0) return;
+const sendMessage = useCallback(async () => {
+  const hasText = input.trim().length > 0;
+  const hasFiles = attachedFiles.length > 0;
 
-    const generateUniqueId = () =>
-      `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  // Block sending if neither text nor files are present
+  if (!hasText && !hasFiles) {
+    return;
+  }
 
-    // Create a user message with files attached
-    const userMsg = {
-      id: generateUniqueId(),
-      role: "user",
-      text: input.trim(),
-      files: attachedFiles.map(file => ({
-        name: file.name,
-        size: file.size,
-        type: getFileType(file.name) // Add file type
-      }))
-    };
+  const generateUniqueId = () =>
+    `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-    // Generate and store assistant ID in ref
-    currentAssistantIdRef.current = generateUniqueId();
+  const userMsg = {
+    id: generateUniqueId(),
+    role: "user",
+    text: input.trim(),
+    files: attachedFiles.map(file => ({
+      name: file.name,
+      size: file.size,
+      type: getFileType(file.name)
+    }))
+  };
 
-    console.log("🚀 sendMessage called with:", {
-      input: input.trim(),
-      hasFiles: attachedFiles.length > 0,
-      hasActiveChat: !!latestChatIdRef.current,
-      currentChatId: latestChatIdRef.current
-    });
+  currentAssistantIdRef.current = generateUniqueId();
 
-    console.log("👤 Sending user message with files:", userMsg.files);
+  console.log("🚀 sendMessage called with:", {
+    input: input.trim(),
+    hasFiles,
+    currentChatId: latestChatIdRef.current,
+    selectedAgent: selectedAgent // Add this for debugging
+  });
 
-    // Update local state
-    setMessages(prev => [...prev, userMsg]);
-    
-    // Store current files before clearing
-    const currentFiles = [...attachedFiles];
-    
-    // Notify parent about USER message and get the chatId
-    let currentChatId = latestChatIdRef.current;
-    const isFirstMessage = !currentChatId; // Check if this is the first message
-    
-    if (onNewMessage) {
-      console.log("📨 Calling onNewMessage with user message and files");
-      const result = onNewMessage(userMsg);
-      console.log("🆔 Parent returned:", result);
-      
-      // Handle the new return format
-      if (result && result.chatId) {
-        latestChatIdRef.current = result.chatId;
-        currentChatId = result.chatId;
-        console.log("🔄 Updated latestChatIdRef to:", result.chatId);
-      }
+  setMessages(prev => [...prev, userMsg]);
+
+  const currentFiles = [...attachedFiles];
+
+  let currentChatId = latestChatIdRef.current;
+  const isFirstMessage = !currentChatId && (!selectedAgent || selectedAgent.isBuiltIn);
+
+  if (onNewMessage) {
+    console.log("📨 Calling onNewMessage with user message and files");
+    const result = onNewMessage(userMsg);
+    console.log("🆔 Parent returned:", result);
+
+    if (result && result.chatId) {
+      latestChatIdRef.current = result.chatId;
+      currentChatId = result.chatId;
+      console.log("🔄 Updated latestChatIdRef to:", result.chatId);
     }
+  }
+
+  setInput("");
+  setAttachedFiles([]);
+  setStatusMsg("");
+
+  if (currentFiles.length > 0) {
+    await uploadFilesIfAny(currentChatId);
+  }
+
+  // Trigger AI response whenever user sends something valid
+  // (text only, files only, or both)
+  const apiText = hasText ? input.trim() : "[User sent files]";
+
+  // ----- MODIFIED: Check if we're using a custom agent -----
+  let url;
+  if (selectedAgent && !selectedAgent.isBuiltIn) {
+    // This is a custom agent
+    url = `http://127.0.0.1:8000/api/custom_agents/stream/?agent_id=${encodeURIComponent(
+      selectedAgent.id
+    )}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(
+      selectedAgent.model || "gemini-flashlite"
+    )}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(
+      selectedAgent.customPrompt || ""
+    )}&text=${encodeURIComponent(apiText)}`;
     
-    // Clear input and attached files
-    setInput("");
-    setAttachedFiles([]);
-    setStatusMsg("");
-
-    // Use the latest chatId after parent has processed the message
-    console.log("🌐 Final chatId for API call:", currentChatId);
+    console.log("🤖 Using CUSTOM AGENT endpoint:", url);
+  } else {
+    // Regular chat
+    url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
+      apiText
+    )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(
+      currentChatId || ''
+    )}&is_first_message=${isFirstMessage}`;
     
-    // Upload files BEFORE streaming message
-    if (currentFiles.length > 0) {
-      await uploadFilesIfAny(currentChatId);
-    }
-    
-    // Only make API call if there's text or this is the first message
-    if (input.trim() || isFirstMessage) {
-      // Add is_first_message parameter to the API URL
-      const url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
-        userMsg.text || "[User sent files]"
-      )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
+    console.log("💬 Using REGULAR CHAT endpoint:", url);
+  }
 
-      console.log("🔗 Making API call to:", url);
+  if (onSetLoading) onSetLoading(true);
 
-      // Set loading state
-      if (onSetLoading) onSetLoading(true);
+  setTimeout(() => {
+    makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url);
+  }, 100);
+}, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent]); 
 
-      // Add a small delay to ensure the chat is properly created before making the API call
-      setTimeout(() => {
-        makeAPIRequest(userMsg.text || "[User sent files]", currentChatId, currentAssistantIdRef.current, url);
-      }, 100);
-    } else {
-      // If no text but we have files, just update loading state
-      if (onSetLoading) onSetLoading(false);
-    }
-  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading]);
+  // Updated makeAPIRequest - supports background streaming
+  const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
+  if (!targetChatId) return;
 
-  // Separate function for making the API request
-  const makeAPIRequest = useCallback((messageText, chatId, assistantId, url) => {
-    // Check if the chat is still active before making the request
-    if (chatId !== latestChatIdRef.current) {
-      console.log("⚠️ Chat changed, aborting API request for old chat:", chatId);
-      if (onSetLoading) onSetLoading(false);
+  console.log("🔗 Starting background-safe stream for chat:", targetChatId, url);
+
+  if (activeStreamsRef.current.has(targetChatId)) {
+    activeStreamsRef.current.get(targetChatId)?.close();
+    activeStreamsRef.current.delete(targetChatId);
+  }
+
+  const es = new EventSource(url);
+  activeStreamsRef.current.set(targetChatId, es);
+
+  chatStatesRef.current.set(targetChatId, {
+    receivedFirstMessage: false,
+    hasImage: false,
+    assistantMessage: null,
+    imageUrl: null,
+    buffer: "",
+    lastUpdateTime: Date.now(),
+    hasNotifiedParent: false,
+    lastNotifiedTextLength: 0
+  });
+
+  let inactivityTimeout = setTimeout(() => {
+    console.log("⏰ Inactivity timeout - closing stream:", targetChatId);
+    es.close();
+    activeStreamsRef.current.delete(targetChatId);
+    chatStatesRef.current.delete(targetChatId);
+    if (targetChatId === latestChatIdRef.current) onSetLoading?.(false);
+  }, 180000);
+
+  es.onmessage = (event) => {
+    const data = event.data;
+    const state = chatStatesRef.current.get(targetChatId);
+    if (!state) return;
+
+    clearTimeout(inactivityTimeout);
+    inactivityTimeout = setTimeout(() => {
+      console.log("⏰ Stream inactivity timeout:", targetChatId);
+      es.close();
+      activeStreamsRef.current.delete(targetChatId);
+      chatStatesRef.current.delete(targetChatId);
+      if (targetChatId === latestChatIdRef.current) onSetLoading?.(false);
+    }, 180000);
+
+    const isActiveChat = targetChatId === latestChatIdRef.current;
+
+    if (data.startsWith('[TITLE]')) {
+      onNewMessage?.({
+        id: `title-${Date.now()}`,
+        role: "system",
+        title: data.replace('[TITLE]', ''),
+        chatId: targetChatId
+      });
       return;
     }
 
-    console.log("🔗 Making API call to:", url);
+    if (data === '[DONE]') {
+  console.log("✅ Stream completed:", targetChatId);
+  clearTimeout(inactivityTimeout);
+  es.close();
+  activeStreamsRef.current.delete(targetChatId);
 
-    // Close any existing stream
-    if (currentStreamRef.current) {
-      currentStreamRef.current.close();
-      currentStreamRef.current = null;
+  if (state.buffer && state.assistantMessage) {
+    state.assistantMessage.text += state.buffer;
+  }
+
+  // ALWAYS send the FULL final message to parent — even in background
+  if (state.assistantMessage) {
+    onNewMessage?.({
+      ...state.assistantMessage,
+      id: assistantId,           // real ID
+      chatId: targetChatId
+    });
+  }
+
+  if (isActiveChat) onSetLoading?.(false);
+  chatStatesRef.current.delete(targetChatId);
+  return;
+}
+
+    if (data.startsWith('[IMAGE]')) {
+      state.imageUrl = data.replace('[IMAGE]', '');
+      state.hasImage = true;
+
+      if (state.assistantMessage) {
+        state.assistantMessage.image = state.imageUrl;
+        onNewMessage?.({ ...state.assistantMessage, chatId: targetChatId });
+      } else {
+        const msg = {
+          id: assistantId,
+          role: "assistant",
+          text: state.buffer || "",
+          image: state.imageUrl
+        };
+        state.assistantMessage = msg;
+        onNewMessage?.({ ...msg, chatId: targetChatId });
+      }
+      return;
     }
 
-    const es = new EventSource(url);
-    currentStreamRef.current = es;
-    
-    let receivedFirstMessage = false;
-    let hasImage = false;
-    let assistantMessage = null;
-    let imageUrl = null;
-    let buffer = "";
-    let lastUpdateTime = 0;
-    const UPDATE_INTERVAL = 50;
-    let hasNotifiedParent = false;
-
-    // Increase timeout to 2 minutes for longer responses
-    const timeoutId = setTimeout(() => {
-      if (!receivedFirstMessage && !hasImage) {
-        console.log("⏰ Request timeout for chat:", chatId);
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        setStatusMsg("Request timeout. The response is taking longer than expected.");
-      }
-    }, 120000); // 2 minutes instead of 30 seconds
-
-    es.onmessage = (event) => {
-      const data = event.data;
-      console.log("📥 Received SSE data for chat:", chatId, data.substring(0, 100));
-      
-      // Check if this message is still relevant for the current chat
-      if (chatId !== latestChatIdRef.current) {
-        console.log("🚫 Message not relevant - chat changed, closing stream");
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        return;
-      }
-      
-      // Reset timeout timer every time we receive data
-      clearTimeout(timeoutId);
-
-      if (currentStreamRef.current !== es) {
-        console.log("🚫 Stream no longer relevant");
-        es.close();
-        return;
-      }
-
-      // Handle title updates
-      if (data.startsWith('[TITLE]')) {
-        const title = data.replace('[TITLE]', '');
-        console.log("🏷️ Received chat title:", title);
-        
-        // Notify parent about the title
-        if (onNewMessage) {
-          onNewMessage({
-            id: `title-${Date.now()}`,
-            role: "system",
-            title: title
-          });
-        }
-        return;
-      }
-
-      if (data === '[DONE]') {
-        console.log("✅ Stream completed for chat:", chatId);
-        es.close();
-        currentStreamRef.current = null;
-        if (onSetLoading) onSetLoading(false);
-        clearTimeout(timeoutId);
-        
-        // Final update with any remaining buffer
-        if (buffer && assistantMessage) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          
-          if (!hasNotifiedParent && onNewMessage) {
-            onNewMessage(assistantMessage);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        return;
-      }
-
-      if (data.startsWith('[IMAGE]')) {
-        imageUrl = data.replace('[IMAGE]', '');
-        hasImage = true;
-        
-        if (assistantMessage) {
-          const updatedMessage = { ...assistantMessage, image: imageUrl };
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId ? updatedMessage : msg
-          ));
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(updatedMessage);
-            hasNotifiedParent = true;
-          }
-        } else {
-          const imageMsg = {
-            id: assistantId,
-            role: "assistant", 
-            text: buffer || "",
-            image: imageUrl
-          };
-          setMessages(prev => [...prev, imageMsg]);
-          assistantMessage = imageMsg;
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(imageMsg);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        // Clear loading when image is received
-        if (onSetLoading) onSetLoading(false);
-        clearTimeout(timeoutId);
-        return;
-      }
-
-      if (data.startsWith("[ERROR]")) {
-        console.error("❌ Stream error:", data);
-        es.close();
-        currentStreamRef.current = null;
-        setStatusMsg(data.replace("[ERROR]", ""));
-        if (onSetLoading) onSetLoading(false);
-        clearTimeout(timeoutId);
-        return;
-      }
-
-      const processedData = data.replace(/\\n/g, '\n');
-      buffer += processedData;
-
-      const now = Date.now();
-      
-      if (!receivedFirstMessage) {
-        console.log("🎯 First message chunk received");
-        receivedFirstMessage = true;
-        
-        assistantMessage = {
-          id: assistantId,
-          role: "assistant", 
-          text: buffer
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        
-        // Clear loading immediately when first message is received
-        if (onSetLoading) onSetLoading(false);
-        
-        buffer = "";
-        lastUpdateTime = now;
-        
-        if (onNewMessage && !hasNotifiedParent) {
-          onNewMessage(assistantMessage);
-          hasNotifiedParent = true;
-        }
-      } else if (now - lastUpdateTime > UPDATE_INTERVAL || buffer.length > 20) {
-        if (assistantMessage) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          buffer = "";
-          lastUpdateTime = now;
-        }
-      }
-
-      // Reset timeout after processing each message
-      clearTimeout(timeoutId);
-      setTimeout(() => {
-        if (!receivedFirstMessage && !hasImage) {
-          console.log("⏰ Request timeout for chat:", chatId);
-          es.close();
-          currentStreamRef.current = null;
-          if (onSetLoading) onSetLoading(false);
-          setStatusMsg("Request timeout. The response is taking longer than expected.");
-        }
-      }, 120000);
-    };
-
-    es.onerror = (err) => {
-      console.error("🔌 SSE connection error:", err);
-      clearTimeout(timeoutId);
-      
-      // Check if this error is still relevant for the current chat
-      if (chatId !== latestChatIdRef.current) {
-        console.log("🚫 Error not relevant - chat changed");
-        es.close();
-        return;
-      }
-      
-      if (currentStreamRef.current === es) {
-        // Finalize the assistant message if we have one
-        if (assistantMessage && buffer) {
-          assistantMessage.text += buffer;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, text: assistantMessage.text }
-              : msg
-          ));
-          if (onNewMessage && !hasNotifiedParent) {
-            onNewMessage(assistantMessage);
-            hasNotifiedParent = true;
-          }
-        }
-        
-        if (!receivedFirstMessage && !hasImage) {
-          if (onSetLoading) onSetLoading(false);
-          setStatusMsg("Connection error. Please try again.");
-        }
-        
-        currentStreamRef.current = null;
-      }
-      
+    if (data.startsWith("[ERROR]")) {
+      console.error("❌ Stream error:", data);
+      clearTimeout(inactivityTimeout);
       es.close();
-    };
+      activeStreamsRef.current.delete(targetChatId);
+      chatStatesRef.current.delete(targetChatId);
+      if (isActiveChat) {
+        setStatusMsg(data.replace("[ERROR]", ""));
+        onSetLoading?.(false);
+      }
+      return;
+    }
 
-    es.onopen = () => {
-      console.log("🔗 SSE connection opened successfully");
+    // Text chunk
+    const processed = data.replace(/\\n/g, '\n');
+    state.buffer += processed;
+
+    const now = Date.now();
+
+    if (isActiveChat) {
+      // Active: fast UI updates
+      if (!state.receivedFirstMessage) {
+        state.receivedFirstMessage = true;
+        const existing = messages.find(m => m.id === assistantId);
+        state.assistantMessage = existing
+          ? { ...existing, text: state.buffer }
+          : { id: assistantId, role: "assistant", text: state.buffer };
+
+        setMessages(prev => {
+          if (existing) return prev.map(m => m.id === assistantId ? state.assistantMessage : m);
+          return [...prev, state.assistantMessage];
+        });
+
+        onSetLoading?.(false);
+        state.buffer = "";
+        state.lastUpdateTime = now;
+        state.lastNotifiedTextLength = state.assistantMessage.text.length;
+        onNewMessage?.({ ...state.assistantMessage, chatId: targetChatId });
+      } else if (now - state.lastUpdateTime > 80 || state.buffer.length > 50) {
+        if (state.assistantMessage) {
+          state.assistantMessage.text += state.buffer;
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, text: state.assistantMessage.text } : m
+          ));
+          state.buffer = "";
+          state.lastUpdateTime = now;
+          state.lastNotifiedTextLength = state.assistantMessage.text.length;
+        }
+      }
+    } else {
+  // Background mode: ONLY ACCUMULATE LOCALLY — do NOT notify parent until [DONE]
+  // This prevents duplicate key warnings and ensures full response on switch-back
+  if (state.assistantMessage) {
+    state.assistantMessage.text += state.buffer;
+  } else if (state.buffer.length > 0) {
+    // Create initial message locally only
+    const msg = {
+      id: assistantId,
+      role: "assistant",
+      text: state.buffer
     };
-  }, [selectedModel, onNewMessage, onSetLoading]);
+    state.assistantMessage = msg;
+  }
+
+  state.buffer = ""; // clear buffer after adding
+}
+  };
+
+  es.onerror = (err) => {
+    console.error("🔌 SSE error:", targetChatId, err);
+    clearTimeout(inactivityTimeout);
+    es.close();
+    activeStreamsRef.current.delete(targetChatId);
+    chatStatesRef.current.delete(targetChatId);
+    if (targetChatId === latestChatIdRef.current) {
+      onSetLoading?.(false);
+      setStatusMsg("Connection error");
+    }
+  };
+
+  es.onopen = () => console.log("🔗 SSE opened:", targetChatId);
+}, [onNewMessage, onSetLoading, messages, selectedAgent]);
+
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -942,7 +805,11 @@ export default function ChatWindow({
                 }`}
               >
                 <div
-                  className={`${m.role === "user" ? "max-w-[90%] sm:max-w-[85%]" : "max-w-[90%] sm:max-w-[85%]"}`}
+                  className={`${
+                    m.role === "user"
+                      ? "max-w-[90%] sm:max-w-[85%]"
+                      : "max-w-[90%] sm:max-w-[85%]"
+                  }`}
                 >
                   {/* Message bubble */}
                   <div className="relative overflow-visible">
@@ -1017,22 +884,22 @@ export default function ChatWindow({
                             <div
                               key={index}
                               className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
-                                m.role === "user" 
-                                  ? "bg-white/20" 
+                                m.role === "user"
+                                  ? "bg-white/20"
                                   : "bg-gray-100"
                               }`}
                             >
-                              <svg 
-                                className="w-4 h-4 flex-shrink-0" 
-                                fill="none" 
-                                stroke="currentColor" 
+                              <svg
+                                className="w-4 h-4 flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
                                 viewBox="0 0 24 24"
                               >
-                                <path 
-                                  strokeLinecap="round" 
-                                  strokeLinejoin="round" 
-                                  strokeWidth={2} 
-                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                                 />
                               </svg>
                               <div className="min-w-0 flex-1">
@@ -1081,9 +948,7 @@ export default function ChatWindow({
                       className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
                       style={{ animationDelay: "0.2s" }}
                     ></div>
-                    <span className="ml-2 text-gray-500 text-sm">
-                      
-                    </span>
+                    <span className="ml-2 text-gray-500 text-sm"></span>
                   </div>
                 </div>
               </div>
@@ -1113,17 +978,17 @@ export default function ChatWindow({
                   key={index}
                   className="flex items-center bg-gray-100 hover:bg-gray-200 rounded-lg px-2 sm:px-3 py-1.5 text-xs transition-colors group"
                 >
-                  <svg 
-                    className="w-3 h-3 mr-1.5 text-gray-500" 
-                    fill="none" 
-                    stroke="currentColor" 
+                  <svg
+                    className="w-3 h-3 mr-1.5 text-gray-500"
+                    fill="none"
+                    stroke="currentColor"
                     viewBox="0 0 24 24"
                   >
-                    <path 
-                      strokeLinecap="round" 
-                      strokeLinejoin="round" 
-                      strokeWidth={2} 
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                     />
                   </svg>
                   <span className="truncate max-w-[80px] sm:max-w-[120px]">
@@ -1146,8 +1011,12 @@ export default function ChatWindow({
       <div className="bg-white px-3 sm:px-4 py-1 sm:pt-3 sm:pb-1 relative flex-shrink-0">
         <div
           className={`max-w-3xl mx-auto rounded-xl p-2 sm:p-2 transition-all duration-200 ${
-            input || attachedFiles.length > 0 ? "ring-1 sm:ring-2 ring-purple-300" : ""
-          } ${input || attachedFiles.length > 0 ? "bg-purple-50" : "bg-gray-100"}`}
+            input || attachedFiles.length > 0
+              ? "ring-1 sm:ring-2 ring-purple-300"
+              : ""
+          } ${
+            input || attachedFiles.length > 0 ? "bg-purple-50" : "bg-gray-100"
+          }`}
         >
           <div className="flex items-end gap-1.5 sm:gap-2 mb-2 sm:mb-3">
             <textarea

@@ -3,9 +3,11 @@ from langchain_tavily import TavilySearch
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain.tools import Tool
 import os,re
 from dotenv import load_dotenv
 from uuid import uuid4
+from .documents import load_vectorstore
 
 # -------------------- Load Environment Variables --------------------
 load_dotenv()
@@ -27,7 +29,34 @@ os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
 chat_history = InMemoryChatMessageHistory()
 
 # -------------------- Tavily Search Tool --------------------
+
 search_tool = TavilySearch(max_results=3)
+# -------------------- Document Search Tool --------------------
+def document_search(query: str) -> str:
+    """Search uploaded PDF documents for relevant information."""
+    vectorstore = load_vectorstore()
+    if not vectorstore:
+        return "No documents have been uploaded in this conversation."
+    
+    results = vectorstore.similarity_search_with_score(query, k=3)  # increased to k=3
+    if not results:
+        return "No relevant documents found for your query."
+    
+    relevant = []
+    for doc, score in results:
+        if score > 0.65:  # slightly lower threshold for better recall
+            relevant.append(doc.page_content.strip())
+    
+    if relevant:
+        return "Relevant document content:\n" + "\n\n".join(relevant)
+    
+    return "No sufficiently relevant document content found."
+
+document_search_tool = Tool.from_function(
+    func=document_search,
+    name="document_search",
+    description="Search uploaded PDF documents for relevant information. Use when query relates to document content."
+)
 
 # -------------------- Model Initialization --------------------
 def init_model(model_id: str = "openai/gpt-5-nano"):
@@ -42,16 +71,35 @@ def init_model(model_id: str = "openai/gpt-5-nano"):
 
 # -------------------- System Prompt --------------------
 system_message = """
-You are a helpful assistant with access to two knowledge sources:
-1. **PDF/document content** (if provided as context)  
-2. **The Tavily search tool** for real-time or external information
+You are a helpful assistant with access to two tools:
+1. document_search — for uploaded PDFs in this chat
+2. tavily_search — for real-time web search (news, weather, cricket, stocks, current events)
 
-# Core Behavioral Rules
-- If the user asks **time-sensitive questions** (weather, news, stocks, live events, sports scores, trending info), you **must automatically call Tavily**. Never ask for permission.
-- If the user's query matches the content of provided **documents**, answer using that content.
-- If the document context is irrelevant, ignore it and answer using your own knowledge or Tavily.
-- Never say: “The document does not contain this.” Simply answer from other sources.
-- Always provide clear, helpful, and structured answers.
+MANDATORY RULES FOR TAVILY:
+- For weather, news, cricket scores/matches, sports, stocks, live events, "latest", "today", "now", "current", "2025/2026" — YOU **MUST** CALL tavily_search IMMEDIATELY.
+- DO NOT guess or use internal knowledge for time-sensitive info.
+- DO NOT say "I couldn't retrieve" or list websites manually — always call the tool.
+- If tavily_search returns no useful results, say: "I couldn't find up-to-date information right now."
+
+HOW TO FORMAT TAVILY RESULTS (MANDATORY):
+When you get results from tavily_search, ALWAYS format them like this at the end:
+
+**Sources:**
+1. **[Title from result]**
+   Short summary from the content...
+   [Read more](full-url-here)
+
+2. **[Another Title]**
+   Another short summary...
+   [Read more](full-url-here)
+
+- Use proper markdown links: [Read more](https://...)
+- Never show raw JSON, plain URLs, or unformatted text.
+- Make it clean, clickable, and professional.
+
+For documents: always call document_search when user mentions pdf, document, uploaded file, summary of document, etc.
+
+Be structured, accurate, and helpful like top AI assistants.
 
 # Mandatory Formatting Rules (Follow in Every Response)
 
@@ -62,10 +110,31 @@ Use markdown headers consistently:
 - `###` for sub-section  
 
 ## Code Blocks
+Code Block Restriction Rule
+Use code blocks only for real programming code or commands.
+Never wrap plain text, explanations, or markdown examples in code blocks.
+
 Always wrap code in fenced code blocks with the correct language tag:
 ```python
 # Example
 print("Hello")
+```
+When showing code output, expected output, console results, terminal output, or numbered sequences:
+- ALWAYS wrap them in a proper fenced code block using triple backticks (```)
+- Use ```text for plain text / numbered output
+- Use ```python, ```bash, ```json etc. when appropriate
+
+Examples:
+
+Expected Output:
+```text
+1
+2
+3
+4
+5
+```
+
 Lists
 Use proper markdown lists:
 
@@ -101,6 +170,7 @@ Explain the logic...
 ## Code Implementation
 ```python
 # code here
+```
 Explanation
 Explain how it works...
 
@@ -108,21 +178,21 @@ shell
 Copy code
 
 ## Explanatory Question Example
-```markdown
+
 # Topic Explanation
 
 ## Overview
 Short overview...
 
 ## Key Concepts
-- Concept 1
-- Concept 2
+
+Concept 1
+
+Concept 2
 
 ## Details
 Further explanation...
-Comparison Example
-markdown
-Copy code
+
 # Comparison
 
 ## Option A
@@ -219,27 +289,43 @@ def get_chat_history(chat_id=None):
 def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
     try:
         chat_id, chat_history = get_chat_history(chat_id)
-
         provider_model = MODEL_MAP.get(model_id, "openai/gpt-5-nano")
         model = init_model(provider_model)
-
-        agent = create_openai_tools_agent(model, [search_tool], prompt)
-        agent_executor = AgentExecutor(agent=agent, tools=[search_tool], verbose=True)
-
+        
+        tools = [search_tool, document_search_tool]
+        
+        agent = create_openai_tools_agent(model, tools, prompt)
+        agent_executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=True,
+            handle_parsing_errors=True
+        )
+        
         chat_history.add_user_message(user_input)
-
         print(f"=== EXECUTING CHAT {chat_id} ===")
-        agent_result = agent_executor.invoke({
+        
+        # Run the agent (tool calling happens here)
+        result = agent_executor.invoke({
             "input": user_input,
             "chat_history": chat_history.messages,
             "agent_scratchpad": []
         })
-
-        final_response = agent_result["output"]
-        yield final_response
-
-        chat_history.add_ai_message(final_response)
-
+        
+        final_answer = result["output"]
+        
+        # stream final answer word-by-word
+        words = final_answer.split(" ")
+        for i, word in enumerate(words):
+            yield word + " "
+            # Small delay to simulate typing — adjust or remove
+            import time
+            time.sleep(0.006)  # ~15ms per word → natural speed
+        
+        
+        
+        chat_history.add_ai_message(final_answer)
+        
     except Exception as e:
         print(f"[ERROR] Chat {chat_id}: {str(e)}")
         yield f"Error: {str(e)}"

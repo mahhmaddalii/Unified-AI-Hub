@@ -47,13 +47,7 @@ const aiModels = [
     icon: <Gemini.Color size={20} />,
     color: "from-blue-500 to-cyan-500"
   },
-  { 
-    id: "gemini-2.5-flash-image", 
-    name: "Gemini 2.5 Flash", 
-    description: "Image generation & analysis", 
-    icon: <Gemini.Color size={20} />,
-    color: "from-pink-500 to-rose-500"
-  },
+  
   { 
     id: "mistral nemo", 
     name: "Mistral Nemo", 
@@ -118,15 +112,7 @@ const agentPurposes = [
     border: "border-amber-200",
     defaultModel: "claude-3 haiku"
   },
-  { 
-    id: "image", 
-    name: "Image Analysis", 
-    description: "Image understanding and visual content analysis",
-    iconComponent: <CameraIcon className="h-5 w-5 text-cyan-600" />,
-    color: "bg-cyan-100 text-cyan-800",
-    border: "border-cyan-200",
-    defaultModel: "gemini-2.5-flash-image"
-  }
+  
 ];
 
 export default function CreateAgentModal({ 
