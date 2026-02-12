@@ -131,7 +131,7 @@
 
       /* ===== MAIN CHAT AREA ===== */
 
-      /* Add this to your global.css */
+      
 
 /* Markdown content styling */
 .markdown-content {
@@ -271,3 +271,89 @@
   pointer-events: none;
 }
 
+
+/* Source links styling */
+.markdown-content h2:has(> :contains("Sources")) {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #111827;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.markdown-content h2:has(> :contains("Sources"))::before {
+  content: "📚";
+  font-size: 1.125rem;
+}
+
+/* Source list styling */
+.markdown-content ul:has(li a[href^="http"]) {
+  list-style-type: none;
+  padding-left: 0;
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-content ul:has(li a[href^="http"]) li {
+  margin-bottom: 0.5rem;
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+.markdown-content ul:has(li a[href^="http"]) li::before {
+  content: "🔗";
+  position: absolute;
+  left: 0;
+  color: #8b5cf6;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+/* Source links */
+.markdown-content ul:has(li a[href^="http"]) li a {
+  color: #6b21a8;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px dashed #c4b5fd;
+  padding-bottom: 1px;
+  transition: all 0.2s ease;
+  word-break: break-word;
+}
+
+.markdown-content ul:has(li a[href^="http"]) li a:hover {
+  color: #4c1d95;
+  border-bottom-color: #6b21a8;
+  background-color: #f5f3ff;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+}
+
+/* Domain badge style - optional enhancement */
+.markdown-content ul:has(li a[href^="http"]) li a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.markdown-content ul:has(li a[href^="http"]) li a::after {
+  content: "↗";
+  font-size: 0.75rem;
+  opacity: 0.6;
+  margin-left: 0.125rem;
+}
+
+/* Sources header with emoji - if using "## Sources" */
+.markdown-content h2:contains("Sources") {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #1f2937;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1rem;
+}

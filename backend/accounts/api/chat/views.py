@@ -81,15 +81,14 @@ def _sse_chunk(text: str) -> str:
 
 @csrf_exempt
 def chat_view(request):
-    """Handle streaming chat messages."""
     if request.method != "GET":
         return JsonResponse({"error": "GET required for streaming"}, status=405)
-
+    
     query = request.GET.get("text", "").strip()
     model_id = request.GET.get("model", "gpt5-nano")
     chat_id = request.GET.get("chat_id", None)
     is_first_message = request.GET.get("is_first_message", "false").lower() == "true"
-
+    
     if not query:
         return JsonResponse({"error": "Empty message"}, status=400)
     
@@ -100,112 +99,59 @@ def chat_view(request):
             print(f"🎯 Generated title for new chat: {chat_title}")
         except Exception as e:
             print(f"⚠️ Title generation failed: {e}")
-            # Fallback title
             chat_title = query[:30] + "..." if len(query) > 30 else query
-
-    # Load vectorstore for RAG
-    vectorstore = load_vectorstore()
-    doc_context = ""
-
-    # Retrieve similar documents if vectorstore is available
-    if vectorstore:
-        try:
-            results = vectorstore.similarity_search_with_score(query, k=2)
-            if results:
-                top_doc, top_score = results[0]
-                if top_score > 0.66:
-                    doc_context = "\n\n".join([
-                        doc.page_content for doc, score in results
-                    ])
-        except Exception as e:
-            print(f"RAG error: {e}")
-
-    # Enrich query with document excerpts (if any)
-    enriched_query = (
-        f"Here are some PDF excerpts:\n{doc_context}\n\nUser: {query}"
-        if doc_context else query
-    )
-
-    # Stream response - SIMPLIFIED
+    
+    # No automatic RAG here — agent decides via tool
+    
     def event_stream():
-     try:
-        if is_first_message and chat_title:
-            yield f"data: [TITLE]{chat_title}\n\n"
-        # Special handling for Gemini 2.5 Flash Image
-        if model_id == "gemini-2.5-flash-image":
-            print("=== Generating Gemini 2.5 Image ===")
+        try:
+            if is_first_message and chat_title:
+                yield f"data: [TITLE]{chat_title}\n\n"
             
-            try:
-                text_response, image_url = image_generator(query)
-                print(f"DEBUG: Text response length: {len(text_response) if text_response else 0}")
-            except Exception as e:
-                print(f"DEBUG: Image generation error: {str(e)}")
-                yield f"data: [ERROR] Image generation failed: {str(e)}\n\n"
+            if model_id == "gemini-2.5-flash-image":
+                print("=== Generating Gemini 2.5 Image ===")
+                try:
+                    text_response, image_url = image_generator(query)
+                except Exception as e:
+                    print(f"DEBUG: Image generation error: {str(e)}")
+                    yield f"data: [ERROR] Image generation failed: {str(e)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                
+                if text_response and text_response != "[No text response]":
+                    tokens = re.findall(r'\S+\s*', text_response)
+                    for token in tokens:
+                        if token.strip():
+                            yield f"data: {token.replace('\n', '\\n')}\n\n"
+                            import time
+                            time.sleep(0.05)
+                else:
+                    yield f"data: Here's your generated image:\n\n"
+                
+                if image_url:
+                    yield f"data: [IMAGE]{image_url}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-
-            # Step 1: Stream the text response token by token
-            if text_response and text_response != "[No text response]":
-                print("DEBUG: Streaming text response")
-                # Split text into tokens for streaming
-                tokens = re.findall(r'\S+\s*', text_response)
-                print(f"DEBUG: Number of tokens: {len(tokens)}")
-                
-                for token in tokens:
-                    if token.strip():
-                        escaped_token = token.replace('\n', '\\n')
-                        
-                        yield f"data: {escaped_token}\n\n"
-                        import time
-                        time.sleep(0.05)
-            else:
-                print("DEBUG: No text response, sending default message")
-                yield f"data: Here's your generated image:\n\n"
             
-            # Step 2: Then send the image (if available)
-            if image_url:
-                yield f"data: [IMAGE]{image_url}\n\n"
-
-            yield "data: [DONE]\n\n"
-            return
-
-        # Normal text streaming for all other models
-        response_text = ""
-        for chunk in get_bot_response(enriched_query, model_id, chat_id):
-            response_text += chunk
-        
-        tokens = re.findall(r'\S+\s*', response_text)
-        for token in tokens:
-            if token.strip():
-                escaped_token = token.replace('\n', '\\n')
-                yield f"data: {escaped_token}\n\n"
-                import time
-                time.sleep(0.05)
+            # Normal chat — agent handles RAG via tool
+            for chunk in get_bot_response(query, model_id, chat_id):
+                if chunk.strip():
+                    yield f"data: {chunk.replace('\n', '\\n')}\n\n"
+                    import time
+                    time.sleep(0.05)
                     
-     except Exception as e:
-        print(f"DEBUG: Error: {str(e)}")
-        yield f"data: [ERROR] {str(e)}\n\n"
-     yield "data: [DONE]\n\n"
-
-
-    # Create streaming response with proper headers
+        except Exception as e:
+            print(f"DEBUG: Error: {str(e)}")
+            yield f"data: [ERROR]{str(e)}\n\n"
+        yield "data: [DONE]\n\n"
+    
     response = StreamingHttpResponse(
         event_stream(),
         content_type='text/event-stream'
     )
     response['Cache-Control'] = 'no-cache'
-    response['X-Accel-Buffering'] = 'no'  # Disable buffering for nginx
+    response['X-Accel-Buffering'] = 'no'
     response['Access-Control-Allow-Origin'] = '*'
     response['Access-Control-Allow-Headers'] = 'Cache-Control'
     return response
-
-
-
-
-
-
-
-
-
-
 
