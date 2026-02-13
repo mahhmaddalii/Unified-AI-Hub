@@ -463,7 +463,7 @@ const renderMessageContent = useCallback((content) => {
 const sendMessage = useCallback(async () => {
   // 🟢 NEW: Block sending if agent is deactivated
   if (selectedAgent && !selectedAgent.isBuiltIn && selectedAgent.status !== 'active') {
-    toast.error(`❌ Cannot send message: ${selectedAgent.name} is deactivated. Please activate it first.`);
+    toast.error(`Cannot send message: ${selectedAgent.name} is deactivated. Please activate it first.`);
     return;
   }
 

@@ -6,7 +6,7 @@ import SettingsPanel from './settings-panel';
 import { useState, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useAgents } from "../agents/AgentContext";
-import { toast } from 'react-toastify'; 
+import { showToast } from '../../utils/toast'; 
 import {
   PlusIcon,
   ChatBubbleOvalLeftIcon,
@@ -239,10 +239,10 @@ export default function UnifiedSidebar({
 
   // Handle agent selection
   const handleSelectAgent = (agent) => {
-  if (!agent.isBuiltIn && agent.status !== 'active') {
-    toast.error(`❌ ${agent.name} is inactive. Please activate it first from the agent dashboard.`);
-    return;
-  }
+    if (!agent.isBuiltIn && agent.status !== 'active') {
+      showToast.error(`❌ ${agent.name} is inactive. Please activate it first from the agent dashboard.`);
+      return;
+    }
 
     if (agent.isBuiltIn && activeBuiltInChats[agent.id]) {
       const existingChatId = activeBuiltInChats[agent.id];
@@ -303,14 +303,14 @@ export default function UnifiedSidebar({
 
   // Handle agent edit (from sidebar)
   const handleEditAgentClick = (agent, e) => {
-  e.stopPropagation();
-  
-  if (agent.status === 'active') {
-    toast.warning(`⚠️ "${agent.name}" is active. Please deactivate it first before editing.`);
-    setDropdownOpenFor(null);
-    setActiveMenu(null);
-    return;
-  }
+    e.stopPropagation();
+
+    if (agent.status === 'active') {
+      showToast.warning(`⚠️ "${agent.name}" is active. Please deactivate it first before editing.`);
+      setDropdownOpenFor(null);
+      setActiveMenu(null);
+      return;
+    }
 
     setDropdownOpenFor(null);
     setActiveMenu(null);
@@ -510,14 +510,14 @@ export default function UnifiedSidebar({
           onClick={(e) => {
             e.stopPropagation();
             if (agent.status === 'active') {
-              toast.warning(`⚠️ "${agent.name}" is active. Please deactivate it first before editing.`);
+              showToast.warning(`⚠️ "${agent.name}" is active. Please deactivate it first before editing.`);
               return;
             }
             onEdit(agent, e);
           }}
           className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${agent.status === 'active'
-              ? 'text-gray-400 cursor-not-allowed'
-              : 'text-gray-700 hover:bg-gray-50'
+            ? 'text-gray-400 cursor-not-allowed'
+            : 'text-gray-700 hover:bg-gray-50'
             }`}
           disabled={agent.status === 'active'}
           title={agent.status === 'active' ? 'Deactivate agent first to edit' : 'Edit agent'}
@@ -693,8 +693,8 @@ export default function UnifiedSidebar({
                     }
                   }}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex-1 justify-center ${activeTab === tab
-                      ? "bg-white text-purple-600 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
+                    ? "bg-white text-purple-600 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
                     }`}
                 >
                   {tab === "chats" ? (
@@ -746,8 +746,8 @@ export default function UnifiedSidebar({
                               if (isMobile) onToggle(false);
                             }}
                             className={`group relative p-2.5 rounded-xl cursor-pointer transition-all duration-200 ${chat.id === activeChatId
-                                ? "bg-purple-100 border border-purple-200"
-                                : "hover:bg-gray-50 border border-transparent hover:border-gray-100"
+                              ? "bg-purple-100 border border-purple-200"
+                              : "hover:bg-gray-50 border border-transparent hover:border-gray-100"
                               }`}
                           >
                             <div className="flex items-start justify-between">
@@ -769,28 +769,28 @@ export default function UnifiedSidebar({
                                         {chat.name}
                                       </div>
                                       {isAgentChat && (
-  <span className="px-1.5 py-0.5 bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700 text-xs font-medium rounded-full flex items-center gap-1">
-    <UserGroupIcon className="w-3 h-3" />
-    <span>Agent</span>
-    
-    {/* 🟢 NEW: Show inactive badge if this agent chat belongs to a deactivated agent */}
-    {(() => {
-      // Find the agent for this chat
-      const agent = agents?.custom?.find(a => a.id === chat.agentId) || 
-                    agents?.builtIn?.find(a => a.id === chat.agentId);
-      
-      // If it's a custom agent and it's inactive, show badge
-      if (agent && !agent.isBuiltIn && agent.status !== 'active') {
-        return (
-          <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded-full">
-            Inactive
-          </span>
-        );
-      }
-      return null;
-    })()}
-  </span>
-)}
+                                        <span className="px-1.5 py-0.5 bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700 text-xs font-medium rounded-full flex items-center gap-1">
+                                          <UserGroupIcon className="w-3 h-3" />
+                                          <span>Agent</span>
+
+                                          {/* 🟢 NEW: Show inactive badge if this agent chat belongs to a deactivated agent */}
+                                          {(() => {
+                                            // Find the agent for this chat
+                                            const agent = agents?.custom?.find(a => a.id === chat.agentId) ||
+                                              agents?.builtIn?.find(a => a.id === chat.agentId);
+
+                                            // If it's a custom agent and it's inactive, show badge
+                                            if (agent && !agent.isBuiltIn && agent.status !== 'active') {
+                                              return (
+                                                <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded-full">
+                                                  Inactive
+                                                </span>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                        </span>
+                                      )}
                                     </div>
                                     <div className="text-xs text-gray-500 mt-0.5">
                                       {chat.lastActive}
@@ -811,8 +811,8 @@ export default function UnifiedSidebar({
                                     );
                                   }}
                                   className={`p-1 rounded-lg ${isMobile
-                                      ? "opacity-100"
-                                      : "opacity-0 group-hover:opacity-100"
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
                                     } hover:bg-gray-200 transition-all duration-200 ml-1`}
                                 >
                                   <svg
@@ -940,47 +940,25 @@ export default function UnifiedSidebar({
                               key={agent.id}
                               onClick={() => {
                                 if (hasActiveChat) {
-  toast.info(
-    <div>
-      <p className="mb-2 font-medium">{agent.name} already has an active chat.</p>
-      <div className="flex gap-2 mt-2">
-        <button 
-          onClick={() => {
-            onSelectChat(hasActiveChat);
-            if (isMobile) onToggle(false);
-            toast.dismiss();
-          }}
-          className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors"
-        >
-          Switch to Chat
-        </button>
-        <button 
-          onClick={() => toast.dismiss()}
-          className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>,
-    {
-      position: "top-center",
-      autoClose: false,
-      closeOnClick: false,
-      draggable: false,
-      closeButton: false,
-      icon: "💬"
-    }
-  );
-  return;
-}
+                                  showToast.confirm(
+                                    'Active Chat Exists',
+                                    `${agent.name} already has an active chat. Switch to it?`,
+                                    () => {
+                                      onSelectChat(hasActiveChat);
+                                      if (isMobile) onToggle(false);
+                                    },
+                                    () => { }
+                                  );
+                                  return;
+                                }
 
                                 handleSelectAgent(agent);
                               }}
                               className={`p-2 rounded-xl cursor-pointer transition-all duration-200 border relative ${isSelected
-                                  ? "border-purple-300 bg-gradient-to-r from-purple-50 to-blue-50"
-                                  : hasActiveChat
-                                    ? "border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50"
-                                    : "border-none hover:border-purple-200 hover:bg-gray-50"
+                                ? "border-purple-300 bg-gradient-to-r from-purple-50 to-blue-50"
+                                : hasActiveChat
+                                  ? "border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50"
+                                  : "border-none hover:border-purple-200 hover:bg-gray-50"
                                 }`}
                             >
                               {/* Active chat indicator badge */}
@@ -992,10 +970,10 @@ export default function UnifiedSidebar({
 
                               <div className="flex items-center gap-2">
                                 <div className={`p-1.5 rounded-lg ${isSelected
-                                    ? "bg-gradient-to-br from-purple-200 to-blue-200"
-                                    : hasActiveChat
-                                      ? "bg-gradient-to-br from-blue-200 to-cyan-200"
-                                      : "bg-gradient-to-br from-blue-100 to-blue-50"
+                                  ? "bg-gradient-to-br from-purple-200 to-blue-200"
+                                  : hasActiveChat
+                                    ? "bg-gradient-to-br from-blue-200 to-cyan-200"
+                                    : "bg-gradient-to-br from-blue-100 to-blue-50"
                                   }`}>
                                   <span className="text-sm">
                                     {agent.icon || "🤖"}
@@ -1061,17 +1039,17 @@ export default function UnifiedSidebar({
                             <div
                               key={agent.id}
                               className={`group relative p-2 rounded-xl transition-all duration-200 border ${isSelected
-                                  ? "border-purple-300 bg-gradient-to-r from-purple-50 to-pink-50"
-                                  : !isActive
-                                    ? "border-gray-200 bg-gray-100"
-                                    : "border-none hover:border-purple-200 hover:bg-gray-50"
+                                ? "border-purple-300 bg-gradient-to-r from-purple-50 to-pink-50"
+                                : !isActive
+                                  ? "border-gray-200 bg-gray-100"
+                                  : "border-none hover:border-purple-200 hover:bg-gray-50"
                                 } ${isActive ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                             >
                               {/* Clickable area for selection */}
                               <div
                                 onClick={() => {
                                   if (!isActive) {
-                                    toast.error(`❌ ${agent.name} is inactive. Please activate it first.`);
+                                    showToast.error(`${agent.name} is inactive. Please activate it first.`);
                                     return;
                                   }
                                   handleSelectAgent(agent);
@@ -1079,10 +1057,10 @@ export default function UnifiedSidebar({
                                 className="flex items-center gap-2"
                               >
                                 <div className={`p-1.5 rounded-lg ${isSelected
-                                    ? "bg-gradient-to-br from-purple-200 to-pink-200"
-                                    : !isActive
-                                      ? "bg-gray-200"
-                                      : "bg-gradient-to-br from-purple-100 to-pink-50"
+                                  ? "bg-gradient-to-br from-purple-200 to-pink-200"
+                                  : !isActive
+                                    ? "bg-gray-200"
+                                    : "bg-gradient-to-br from-purple-100 to-pink-50"
                                   }`}>
                                   <UserGroupIcon className={`w-4 h-4 ${!isActive ? 'text-gray-500' : 'text-purple-600'}`} />
                                 </div>
@@ -1106,12 +1084,12 @@ export default function UnifiedSidebar({
                                       <span>{modelName}</span>
                                     </div>
                                     {isActive ? (
-  <div className="w-2 h-2 rounded-full bg-green-500" title="Active" />
-) : (
-  <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded-full">
-    Inactive
-  </span>
-)}
+                                      <div className="w-2 h-2 rounded-full bg-green-500" title="Active" />
+                                    ) : (
+                                      <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded-full">
+                                        Inactive
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -1201,8 +1179,8 @@ export default function UnifiedSidebar({
               <button
                 onClick={() => setShowProfileModal((prev) => !prev)}
                 className={`w-full flex items-center gap-2 px-2 py-2 rounded-xl transition-all duration-200 text-left ${showProfileModal
-                    ? "bg-purple-100 text-purple-700"
-                    : "text-gray-600 hover:bg-gray-50"
+                  ? "bg-purple-100 text-purple-700"
+                  : "text-gray-600 hover:bg-gray-50"
                   }`}
               >
                 <div
@@ -1242,10 +1220,10 @@ export default function UnifiedSidebar({
                       >
                         <div
                           className={`p-1 rounded-lg ${item.color === "text-red-600"
-                              ? "bg-red-50"
-                              : item.color === "text-purple-600"
-                                ? "bg-purple-50"
-                                : "bg-gray-100"
+                            ? "bg-red-50"
+                            : item.color === "text-purple-600"
+                              ? "bg-purple-50"
+                              : "bg-gray-100"
                             }`}
                         >
                           <item.icon className={`w-4 h-4 ${item.color}`} />

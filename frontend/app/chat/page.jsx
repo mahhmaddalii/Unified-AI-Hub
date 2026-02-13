@@ -7,9 +7,8 @@ import ChatWindow from "../../components/chat/chat-window";
 import Navbar from "../../components/chat/chat-navbar";
 import AgentDashboard from "../../components/agents/adashboard";
 import { AgentProvider, useAgents } from "../../components/agents/AgentContext";
-import { ToastContainer, toast } from 'react-toastify'; 
- import 'react-toastify/dist/ReactToastify.css'; 
-// import { toast } from 'react-toastify';
+import { ToastContainer } from 'react-toastify';
+import { toastContainerProps, toastStyles, showToast } from '../../utils/toast';
 
 // Inner component that uses AgentContext
 function ChatPageContent() {
@@ -34,6 +33,17 @@ function ChatPageContent() {
   
   const latestActiveChatId = useRef(null);
   const pendingAIMessages = useRef(new Map());
+
+useEffect(() => {
+  // Inject custom toast styles
+  const style = document.createElement('style');
+  style.textContent = toastStyles;
+  document.head.appendChild(style);
+  
+  return () => {
+    document.head.removeChild(style);
+  };
+}, []);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -152,7 +162,7 @@ useEffect(() => {
   // 🟢 NEW: Check if agent is active (skip check for built-in agents)
   if (!agent.isBuiltIn && agent.status !== 'active') {
     // Agent is deactivated - show warning and don't create/return chat
-    toast.warning(`⚠️ ${agent.name} is deactivated. Please activate it first.`);
+    showToast.warning(`${agent.name} is deactivated. Please activate it first.`);
     return null;
   }
 
@@ -177,7 +187,7 @@ useEffect(() => {
     [stableChatId]: []
   }));
 
-  toast.success(`✨ Started new chat with ${agent.name}`); // 🟢 ADD success toast
+  showToast.success(`Started new chat with ${agent.name}`); // 🟢 ADD success toast
   return newChat;
 }, [chats]); // No need to add dependencies - agent.status comes from parameter
 
@@ -221,7 +231,7 @@ const handleSelectChat = useCallback((chatId) => {
       // Check if agent is active (skip check for built-in agents)
       if (!agent.isBuiltIn && agent.status !== 'active') {
         // Agent is deactivated - show warning and don't select the chat
-        toast.error(`❌ ${agent.name} is deactivated. Please activate it first to continue this chat.`);
+        showToast.error(`${agent.name} is deactivated. Please activate it first to continue this chat.`);
         return; // Don't proceed with chat selection
       }
       
@@ -358,7 +368,7 @@ const handleSelectChat = useCallback((chatId) => {
     const agent = allAgents.find(a => a.id === currentChat.agentId);
     if (agent && !agent.isBuiltIn && agent.status !== 'active') {
       // Agent is deactivated - block message and show warning
-      toast.error(`❌ ${agent.name} has been deactivated. You cannot continue this chat.`);
+      showToast.error(`${agent.name} has been deactivated. You cannot continue this chat.`);
       return { chatId: null, setLoading: false };
     }
   }
@@ -374,7 +384,7 @@ const handleSelectChat = useCallback((chatId) => {
       
       // 🟢 NEW: Check if the selected agent is active
       if (!contextSelectedAgent.isBuiltIn && contextSelectedAgent.status !== 'active') {
-        toast.error(`❌ ${contextSelectedAgent.name} is deactivated. Please activate it first.`);
+        showToast.error(`${contextSelectedAgent.name} is deactivated. Please activate it first.`);
         return { chatId: null, setLoading: false };
       }
 
@@ -571,18 +581,8 @@ const handleSelectChat = useCallback((chatId) => {
 export default function ChatPage() {
   return (
     <AgentProvider>
-        <ToastContainer 
-        position="top-right"
-        autoClose={3000}
-        hideProgressBar={false}
-        newestOnTop
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      /> 
+      {/* ✅ REPLACE the old ToastContainer with this single line */}
+      <ToastContainer {...toastContainerProps} />
       <ChatPageContent />
     </AgentProvider>
   );
