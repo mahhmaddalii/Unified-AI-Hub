@@ -118,7 +118,7 @@ Follow all formatting, retrieval, and structural guidelines in every response, n
 
 # Purpose to default model mapping for auto-selection
 PURPOSE_MODEL_MAP = {
-    "general": "gpt5-nano",
+    "general": "gemini-flashlite",
     "support": "deepseek-chat",
     "code": "gpt5-nano",
     "creative": "claude-3 haiku",
