@@ -357,3 +357,27 @@
   border-top: 1px solid #e5e7eb;
   padding-top: 1rem;
 }
+/* Custom thin scrollbar with no arrows */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #4d4d573e;
+  border-radius: 10px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-button {
+  display: none; /* remove arrows */
+}
+
+/* Firefox */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #53545c50 transparent;
+}

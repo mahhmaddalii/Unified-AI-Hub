@@ -1,4 +1,5 @@
-import SetNewPasswordForm from '../../components/ui/new-password';
+import SetNewPasswordForm from '../../components/auth/new-password';
+
 
 export default function SetNewPasswordPage() {
   return (

@@ -108,7 +108,7 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
           </div>
 
           {/* Settings Navigation */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 p-4">
             <div className="space-y-1">
               {sections.map((section) => (
                 <button

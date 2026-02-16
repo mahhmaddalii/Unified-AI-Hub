@@ -795,10 +795,12 @@ const sendMessage = useCallback(async () => {
   return (
     <div className="flex flex-col h-full w-full bg-white">
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto px-2 py-1 md:px-4">
+      <div className={`flex-1 px-2 py-1 md:px-4 ${
+        messages.length > 0 ? "scrollbar-thin overflow-y-auto" : "overflow-hidden"
+      }`}>
         {showWelcomeScreen ? (
           // Welcome screen with prompt cards
-          <div className="flex flex-col items-center justify-center h-full px-2 overflow-y-auto">
+          <div className="flex flex-col items-center justify-center h-full px-2">
             {/* Centered Logo and Title */}
             <div className="text-center mb-6 max-w-lg w-full px-2">
               <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-full mb-4 shadow-lg mx-auto">
@@ -1256,7 +1258,7 @@ const sendMessage = useCallback(async () => {
     w-[85%] max-w-xs
     sm:w-full sm:max-w-md md:max-w-lg
     max-h-[60vh] sm:max-h-[80vh]
-    overflow-y-auto relative"
+    relative"
             onClick={(e) => e.stopPropagation()}
             style={{
               boxShadow:
@@ -1288,7 +1290,7 @@ const sendMessage = useCallback(async () => {
               </button>
             </div>
 
-            <div className="overflow-y-auto max-h-[calc(75vh-120px)] sm:max-h-[calc(70vh-120px)] pr-1 sm:pr-2">
+            <div className="overflow-y-auto scrollbar-thin max-h-[calc(75vh-120px)] sm:max-h-[calc(70vh-120px)] pr-1 sm:pr-2">
               <div className="space-y-2 mb-4">
                 {aiModels.map((model) => (
                   <button

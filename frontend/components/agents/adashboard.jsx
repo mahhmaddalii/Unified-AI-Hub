@@ -252,7 +252,7 @@ export default function AgentDashboard({
       </div>
 
       {/* Agent Cards Grid */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 p-6">
         {/* Built-in Agents */}
         {agents.builtIn.length > 0 && (
           <div className="mb-8">
