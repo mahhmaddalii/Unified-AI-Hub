@@ -708,7 +708,7 @@ export default function UnifiedSidebar({
             </div>
 
             {/* Content */}
-            <div className="flex-grow overflow-y-auto">
+            <div className="flex-grow overflow-y-auto scrollbar-thin">
               {activeTab === "chats" && (
                 <div className="space-y-1.5">
                   <button
