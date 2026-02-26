@@ -6,6 +6,7 @@ import SettingsPanel from './settings-panel';
 import { useState, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useAgents } from "../agents/AgentContext";
+import { showToast } from '../../utils/toast'; 
 import {
   PlusIcon,
   ChatBubbleOvalLeftIcon,
@@ -26,14 +27,14 @@ import {
 // Model icons mapping
 import { DeepSeek, OpenAI, Gemini, Claude, Mistral } from '@lobehub/icons';
 
-export default function UnifiedSidebar({ 
-  isOpen, 
-  onToggle, 
-  onSelectChat, 
-  activeChatId, 
-  chats = [], 
-  onChatsUpdate, 
-  onDeleteChat, 
+export default function UnifiedSidebar({
+  isOpen,
+  onToggle,
+  onSelectChat,
+  activeChatId,
+  chats = [],
+  onChatsUpdate,
+  onDeleteChat,
   onNewChat,
   onAgentsButtonClick,
   onEditAgent,
@@ -106,7 +107,7 @@ export default function UnifiedSidebar({
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (activeMenu !== null && menuRefs.current[activeMenu] &&
-          !menuRefs.current[activeMenu].contains(event.target)) {
+        !menuRefs.current[activeMenu].contains(event.target)) {
         setActiveMenu(null);
       }
 
@@ -144,11 +145,11 @@ export default function UnifiedSidebar({
             setIsCreatingAgent(true);
           }
         }
-        
+
         setPendingAction(null);
         setPendingAgent(null);
       }, 100);
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [activeTab, pendingAction, pendingAgent, setEditingAgent, setSelectedAgent, setIsCreatingAgent]);
@@ -187,7 +188,7 @@ export default function UnifiedSidebar({
     } else {
       document.body.style.overflow = 'unset';
     }
-    
+
     return () => {
       document.body.style.overflow = 'unset';
     };
@@ -196,7 +197,7 @@ export default function UnifiedSidebar({
   // Dropdown Portal Component
   const DropdownPortal = ({ children, isOpen }) => {
     if (!isOpen) return null;
-    
+
     return createPortal(
       <div className="fixed inset-0 z-[9999] pointer-events-none">
         {children}
@@ -215,7 +216,7 @@ export default function UnifiedSidebar({
         name: `New Chat ${chats.length + 1}`,
         lastActive: "Just now"
       };
-      
+
       const updatedChats = [newChat, ...chats];
       if (onChatsUpdate) onChatsUpdate(updatedChats);
     }
@@ -228,31 +229,29 @@ export default function UnifiedSidebar({
     setEditingAgent(null);
     setPendingAction('create');
     setActiveTab("agents");
-    
+
     if (onAgentsButtonClick) {
       onAgentsButtonClick(true);
     }
-    
+
     if (isMobile) onToggle(false);
   };
 
   // Handle agent selection
   const handleSelectAgent = (agent) => {
     if (!agent.isBuiltIn && agent.status !== 'active') {
-      if (typeof window !== 'undefined') {
-        alert(`${agent.name} is currently inactive. Please activate it first from the agent dashboard.`);
-      }
+      showToast.error(`❌ ${agent.name} is inactive. Please activate it first from the agent dashboard.`);
       return;
     }
-    
+
     if (agent.isBuiltIn && activeBuiltInChats[agent.id]) {
       const existingChatId = activeBuiltInChats[agent.id];
-      
+
       if (typeof window !== 'undefined') {
         const shouldSwitch = confirm(
           `${agent.name} already has an active chat. Would you like to switch to that chat?`
         );
-        
+
         if (shouldSwitch && onSelectChat) {
           onSelectChat(existingChatId);
           if (isMobile) onToggle(false);
@@ -260,38 +259,38 @@ export default function UnifiedSidebar({
       }
       return;
     }
-    
+
     setPendingAction(null);
     setPendingAgent(null);
     setSelectedAgent(agent);
     setEditingAgent(null);
-    
+
     if (onSelectAgent) {
       onSelectAgent(agent);
     }
-    
+
     if (isMobile) onToggle(false);
   };
 
   // Handle three dot click for agent actions
   const handleThreeDotClick = (e, agentId) => {
     e.stopPropagation();
-    
+
     const buttonRect = e.currentTarget.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
     const dropdownHeight = 80;
-    
+
     let topPosition = buttonRect.bottom + 4;
-    
+
     if (topPosition + dropdownHeight > viewportHeight - 20) {
       topPosition = buttonRect.top - dropdownHeight - 4;
     }
-    
+
     setDropdownPosition({
       x: buttonRect.left,
       y: topPosition
     });
-    
+
     const isOpening = dropdownOpenFor !== agentId;
     setDropdownOpenFor(isOpening ? agentId : null);
     setActiveMenu(isOpening ? agentId : null);
@@ -305,28 +304,28 @@ export default function UnifiedSidebar({
   // Handle agent edit (from sidebar)
   const handleEditAgentClick = (agent, e) => {
     e.stopPropagation();
-    
+
     if (agent.status === 'active') {
-      alert(`"${agent.name}" is currently active. Please deactivate it first before editing.`);
+      showToast.warning(`⚠️ "${agent.name}" is active. Please deactivate it first before editing.`);
       setDropdownOpenFor(null);
       setActiveMenu(null);
       return;
     }
-    
+
     setDropdownOpenFor(null);
     setActiveMenu(null);
     setPendingAction('edit');
     setPendingAgent(agent);
     setActiveTab("agents");
-    
+
     if (onAgentsButtonClick) {
       onAgentsButtonClick();
     }
-    
+
     if (onEditAgent) {
       onEditAgent(agent);
     }
-    
+
     if (isMobile) onToggle(false);
   };
 
@@ -335,7 +334,7 @@ export default function UnifiedSidebar({
     setDropdownOpenFor(null);
     setActiveMenu(null);
     contextDeleteAgent(agentId);
-    
+
     if (selectedAgent?.id === agentId) {
       setSelectedAgent(null);
     }
@@ -347,12 +346,12 @@ export default function UnifiedSidebar({
     } else {
       const updatedChats = chats.filter(chat => chat.id !== chatId);
       if (onChatsUpdate) onChatsUpdate(updatedChats);
-      
+
       if (chatId === activeChatId && onSelectChat) {
         onSelectChat(null);
       }
     }
-    
+
     setActiveMenu(null);
   };
 
@@ -476,7 +475,7 @@ export default function UnifiedSidebar({
   // Dropdown Menu Component
   const AgentDropdownMenu = ({ agent, onClose, onEdit, onDelete, onToggleStatus }) => {
     return (
-      <div 
+      <div
         className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-[10000] min-w-[140px] animate-in fade-in-0 zoom-in-95 pointer-events-auto agent-dropdown-menu"
         style={{
           left: `${dropdownPosition.x}px`,
@@ -506,21 +505,20 @@ export default function UnifiedSidebar({
           </svg>
           <span>{agent.status === 'active' ? 'Deactivate' : 'Activate'}</span>
         </button>
-        
+
         <button
           onClick={(e) => {
             e.stopPropagation();
             if (agent.status === 'active') {
-              alert(`"${agent.name}" is currently active. Please deactivate it first before editing.`);
+              showToast.warning(`⚠️ "${agent.name}" is active. Please deactivate it first before editing.`);
               return;
             }
             onEdit(agent, e);
           }}
-          className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${
-            agent.status === 'active' 
-              ? 'text-gray-400 cursor-not-allowed' 
-              : 'text-gray-700 hover:bg-gray-50'
-          }`}
+          className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${agent.status === 'active'
+            ? 'text-gray-400 cursor-not-allowed'
+            : 'text-gray-700 hover:bg-gray-50'
+            }`}
           disabled={agent.status === 'active'}
           title={agent.status === 'active' ? 'Deactivate agent first to edit' : 'Edit agent'}
         >
@@ -694,11 +692,10 @@ export default function UnifiedSidebar({
                       onAgentsButtonClick();
                     }
                   }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex-1 justify-center ${
-                    activeTab === tab
-                      ? "bg-white text-purple-600 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex-1 justify-center ${activeTab === tab
+                    ? "bg-white text-purple-600 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                    }`}
                 >
                   {tab === "chats" ? (
                     <ChatBubbleOvalLeftIcon className="w-4 h-4" />
@@ -711,7 +708,7 @@ export default function UnifiedSidebar({
             </div>
 
             {/* Content */}
-            <div className="flex-grow overflow-y-auto">
+            <div className="flex-grow overflow-y-auto scrollbar-thin">
               {activeTab === "chats" && (
                 <div className="space-y-1.5">
                   <button
@@ -727,136 +724,158 @@ export default function UnifiedSidebar({
                   <div className="space-y-1 mt-3">
                     {isLoading
                       ? Array.from({ length: 3 }).map((_, index) => (
-                          <div
-                            key={index}
-                            className="flex items-center justify-between p-2 rounded-xl animate-pulse bg-gray-50"
-                          >
-                            <div className="space-y-1.5">
-                              <div className="h-3.5 bg-gray-200 rounded w-32"></div>
-                              <div className="h-2.5 bg-gray-200 rounded w-20"></div>
-                            </div>
-                            <div className="h-5 w-5 bg-gray-200 rounded-full"></div>
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-2 rounded-xl animate-pulse bg-gray-50"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="h-3.5 bg-gray-200 rounded w-32"></div>
+                            <div className="h-2.5 bg-gray-200 rounded w-20"></div>
                           </div>
-                        ))
+                          <div className="h-5 w-5 bg-gray-200 rounded-full"></div>
+                        </div>
+                      ))
                       : (searchQuery ? filteredChats : chats).map((chat) => {
-                          const isAgentChat = chat.type === 'agent' || chat.agentId || chat.withAgent;
-                          
-                          return (
-                            <div
-                              key={chat.id}
-                              onClick={() => {
-                                if (onSelectChat) onSelectChat(chat.id);
-                                if (isMobile) onToggle(false);
-                              }}
-                              className={`group relative p-2.5 rounded-xl cursor-pointer transition-all duration-200 ${
-                                chat.id === activeChatId
-                                  ? "bg-purple-100 border border-purple-200"
-                                  : "hover:bg-gray-50 border border-transparent hover:border-gray-100"
+                        const isAgentChat = chat.type === 'agent' || chat.agentId || chat.withAgent;
+
+                        return (
+                          <div
+                            key={chat.id}
+                            onClick={() => {
+                              if (onSelectChat) onSelectChat(chat.id);
+                              if (isMobile) onToggle(false);
+                            }}
+                            className={`group relative p-2.5 rounded-xl cursor-pointer transition-all duration-200 ${chat.id === activeChatId
+                              ? "bg-purple-100 border border-purple-200"
+                              : "hover:bg-gray-50 border border-transparent hover:border-gray-100"
                               }`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1 min-w-0">
-                                  {renamingChat === chat.id ? (
-                                    <input
-                                      ref={inputRef}
-                                      type="text"
-                                      value={renameValue}
-                                      onChange={(e) => setRenameValue(e.target.value)}
-                                      onKeyDown={(e) => handleRenameKeyPress(e, chat.id)}
-                                      onBlur={() => renameChat(chat.id, renameValue)}
-                                      className="w-full bg-transparent outline-none text-gray-800 font-medium border-b border-purple-300 pb-1 text-sm"
-                                    />
-                                  ) : (
-                                    <>
-                                      <div className="flex items-center gap-1.5">
-                                        <div className="font-medium text-gray-800 truncate text-sm">
-                                          {chat.name}
-                                        </div>
-                                        {isAgentChat && (
-                                          <span className="px-1.5 py-0.5 bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700 text-xs font-medium rounded-full flex items-center gap-1">
-                                            <UserGroupIcon className="w-3 h-3" />
-                                            <span>Agent</span>
-                                          </span>
-                                        )}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                {renamingChat === chat.id ? (
+                                  <input
+                                    ref={inputRef}
+                                    type="text"
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onKeyDown={(e) => handleRenameKeyPress(e, chat.id)}
+                                    onBlur={() => renameChat(chat.id, renameValue)}
+                                    className="w-full bg-transparent outline-none text-gray-800 font-medium border-b border-purple-300 pb-1 text-sm"
+                                  />
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="font-medium text-gray-800 truncate text-sm">
+                                        {chat.name}
                                       </div>
-                                      <div className="text-xs text-gray-500 mt-0.5">
-                                        {chat.lastActive}
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
+                                      {isAgentChat && (
+                                        <span className="px-1.5 py-0.5 bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700 text-xs font-medium rounded-full flex items-center gap-1">
+                                          <UserGroupIcon className="w-3 h-3" />
+                                          <span>Agent</span>
 
-                                <div
-                                  className="relative"
-                                  ref={(el) => (menuRefs.current[chat.id] = el)}
-                                >
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActiveMenu(
-                                        activeMenu === chat.id ? null : chat.id
-                                      );
-                                    }}
-                                    className={`p-1 rounded-lg ${
-                                      isMobile
-                                        ? "opacity-100"
-                                        : "opacity-0 group-hover:opacity-100"
-                                    } hover:bg-gray-200 transition-all duration-200 ml-1`}
-                                  >
-                                    <svg
-                                      className="w-4 h-4 text-gray-500"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"
-                                      />
-                                    </svg>
-                                  </button>
+                                          {/* 🟢 NEW: Show inactive badge if this agent chat belongs to a deactivated agent */}
+                                          {(() => {
+                                            // Find the agent for this chat
+                                            const agent = agents?.custom?.find(a => a.id === chat.agentId) ||
+                                              agents?.builtIn?.find(a => a.id === chat.agentId);
 
-                                  {activeMenu === chat.id && (
-                                    <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in-0 zoom-in-95">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleRenameStart(chat.id, chat.name);
-                                        }}
-                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                                      >
-                                        <PencilSquareIcon className="w-4 h-4" />
-                                        Rename
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          shareChat(chat.id);
-                                        }}
-                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                                      >
-                                        <ShareIcon className="w-4 h-4" />
-                                        Share
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          deleteChat(chat.id);
-                                        }}
-                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                                      >
-                                        <TrashIcon className="w-4 h-4" />
-                                        Delete
-                                      </button>
+                                            // If it's a custom agent and it's inactive, show badge
+                                            if (agent && !agent.isBuiltIn && agent.status !== 'active') {
+                                              return (
+                                                <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded-full">
+                                                  Inactive
+                                                </span>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                        </span>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
+                                    <div className="text-xs text-gray-500 mt-0.5">
+                                      {chat.lastActive}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+
+                              <div
+                                className="relative"
+                                ref={(el) => (menuRefs.current[chat.id] = el)}
+                              >
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setActiveMenu(
+                                      activeMenu === chat.id ? null : chat.id
+                                    );
+                                  }}
+                                  className={`p-1 rounded-lg ${isMobile
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
+                                    } hover:bg-gray-200 transition-all duration-200 ml-1`}
+                                >
+                                  <svg
+                                    className="w-4 h-4 text-gray-500"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"
+                                    />
+                                  </svg>
+                                </button>
+
+                                {activeMenu === chat.id && (
+                                  <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in-0 zoom-in-95">
+                                    {/* Show Rename and Share ONLY for non-agent chats */}
+                                    {!isAgentChat && (
+                                      <>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRenameStart(chat.id, chat.name);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                                        >
+                                          <PencilSquareIcon className="w-4 h-4" />
+                                          Rename
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            shareChat(chat.id);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                                        >
+                                          <ShareIcon className="w-4 h-4" />
+                                          Share
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {/* Delete button shows for ALL chats */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteChat(chat.id);
+                                      }}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                                    >
+                                      <TrashIcon className="w-4 h-4" />
+                                      Delete Chat
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                          );
-                        })}
+                          </div>
+                        );
+                      })}
 
                     {searchQuery && filteredChats.length === 0 && !isLoading && (
                       <div className="text-center py-4 text-gray-400">
@@ -885,114 +904,113 @@ export default function UnifiedSidebar({
               {activeTab === "agents" && (
                 <div className="space-y-3">
                   {/* Create Agent Button - Compact */}
-<button
-  onClick={handleCreateCustomAgent}
-  className="w-full flex items-center gap-2 px-3 py-2.5 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 text-purple-700 rounded-xl hover:from-purple-100 hover:to-indigo-100 transition-all duration-200 group shadow-sm"
->
-  <div className="p-1 bg-white rounded-lg shadow-sm group-hover:scale-110 transition-transform">
-    <PlusIcon className="w-4 h-4 text-purple-600" />
-  </div>
-  <span className="font-medium text-sm">Create Custom Agent</span>
-</button>
+                  <button
+                    onClick={handleCreateCustomAgent}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 text-purple-700 rounded-xl hover:from-purple-100 hover:to-indigo-100 transition-all duration-200 group shadow-sm"
+                  >
+                    <div className="p-1 bg-white rounded-lg shadow-sm group-hover:scale-110 transition-transform">
+                      <PlusIcon className="w-4 h-4 text-purple-600" />
+                    </div>
+                    <span className="font-medium text-sm">Create Custom Agent</span>
+                  </button>
 
-{/* Built-in Agents - Compact */}
-{(!searchQuery || filteredBuiltInAgents.length > 0) && (
-  <div className="pt-1">
-    <div className="flex items-center justify-between mb-1 px-2">
-      <div className="flex items-center gap-1">
-        <LockClosedIcon className="w-3 h-3 text-gray-500" />
-        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-          Built-in
-        </span>
-      </div>
-      {!searchQuery && (
-        <span className="text-xs text-gray-500">
-          {agents.builtIn.length}
-        </span>
-      )}
-    </div>
-    <div className="space-y-1">
-      {(searchQuery ? filteredBuiltInAgents : agents.builtIn).map((agent) => {
-        const isSelected = selectedAgent?.id === agent.id;
-        const hasActiveChat = activeBuiltInChats[agent.id];
+                  {/* Built-in Agents - Compact */}
+                  {(!searchQuery || filteredBuiltInAgents.length > 0) && (
+                    <div className="pt-1">
+                      <div className="flex items-center justify-between mb-1 px-2">
+                        <div className="flex items-center gap-1">
+                          <LockClosedIcon className="w-3 h-3 text-gray-500" />
+                          <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                            Built-in
+                          </span>
+                        </div>
+                        {!searchQuery && (
+                          <span className="text-xs text-gray-500">
+                            {agents.builtIn.length}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        {(searchQuery ? filteredBuiltInAgents : agents.builtIn).map((agent) => {
+                          const isSelected = selectedAgent?.id === agent.id;
+                          const hasActiveChat = activeBuiltInChats[agent.id];
 
-        return (
-          <div
-            key={agent.id}
-            onClick={() => {
-              if (hasActiveChat) {
-                const shouldSwitch = confirm(
-                  `${agent.name} already has an active chat. Would you like to switch to that chat?`
-                );
-                
-                if (shouldSwitch && onSelectChat) {
-                  onSelectChat(hasActiveChat);
-                  if (isMobile) onToggle(false);
-                }
-                return;
-              }
-              
-              handleSelectAgent(agent);
-            }}
-            className={`p-2 rounded-xl cursor-pointer transition-all duration-200 border relative ${
-              isSelected
-                ? "border-purple-300 bg-gradient-to-r from-purple-50 to-blue-50"
-                : hasActiveChat
-                  ? "border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50"
-                  : "border-none hover:border-purple-200 hover:bg-gray-50"
-            }`}
-          >
-            {/* Active chat indicator badge */}
-            {hasActiveChat && (
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center border border-white">
-                <ChatBubbleOvalLeftIcon className="w-3 h-3 text-white" />
-              </div>
-            )}
-            
-            <div className="flex items-center gap-2">
-              <div className={`p-1.5 rounded-lg ${
-                isSelected 
-                  ? "bg-gradient-to-br from-purple-200 to-blue-200" 
-                  : hasActiveChat
-                    ? "bg-gradient-to-br from-blue-200 to-cyan-200"
-                    : "bg-gradient-to-br from-blue-100 to-blue-50"
-              }`}>
-                <span className="text-sm">
-                  {agent.icon || "🤖"}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <h4 className="font-medium text-gray-800 text-sm truncate">
-                      {agent.name}
-                    </h4>
-                    <LockClosedIcon className="w-3 h-3 text-gray-400" />
-                    {hasActiveChat && (
-                      <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
-                        Active Chat
-                      </span>
-                    )}
-                  </div>
-                  {isSelected && (
-                    <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse"></div>
+                          return (
+                            <div
+                              key={agent.id}
+                              onClick={() => {
+                                if (hasActiveChat) {
+                                  showToast.confirm(
+                                    'Active Chat Exists',
+                                    `${agent.name} already has an active chat. Switch to it?`,
+                                    () => {
+                                      onSelectChat(hasActiveChat);
+                                      if (isMobile) onToggle(false);
+                                    },
+                                    () => { }
+                                  );
+                                  return;
+                                }
+
+                                handleSelectAgent(agent);
+                              }}
+                              className={`p-2 rounded-xl cursor-pointer transition-all duration-200 border relative ${isSelected
+                                ? "border-purple-300 bg-gradient-to-r from-purple-50 to-blue-50"
+                                : hasActiveChat
+                                  ? "border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50"
+                                  : "border-none hover:border-purple-200 hover:bg-gray-50"
+                                }`}
+                            >
+                              {/* Active chat indicator badge */}
+                              {hasActiveChat && (
+                                <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center border border-white">
+                                  <ChatBubbleOvalLeftIcon className="w-3 h-3 text-white" />
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-2">
+                                <div className={`p-1.5 rounded-lg ${isSelected
+                                  ? "bg-gradient-to-br from-purple-200 to-blue-200"
+                                  : hasActiveChat
+                                    ? "bg-gradient-to-br from-blue-200 to-cyan-200"
+                                    : "bg-gradient-to-br from-blue-100 to-blue-50"
+                                  }`}>
+                                  <span className="text-sm">
+                                    {agent.icon || "🤖"}
+                                  </span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1">
+                                      <h4 className="font-medium text-gray-800 text-sm truncate">
+                                        {agent.name}
+                                      </h4>
+                                      <LockClosedIcon className="w-3 h-3 text-gray-400" />
+                                      {hasActiveChat && (
+                                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+                                          Active Chat
+                                        </span>
+                                      )}
+                                    </div>
+                                    {isSelected && (
+                                      <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse"></div>
+                                    )}
+                                  </div>
+                                  {/* Removed the model info section for built-in agents */}
+                                  {/* You could optionally add a description or purpose here instead */}
+                                  {agent.description && (
+                                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                                      {agent.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
-                </div>
-                {/* Removed the model info section for built-in agents */}
-                {/* You could optionally add a description or purpose here instead */}
-                {agent.description && (
-                  <p className="text-xs text-gray-500 truncate mt-0.5">
-                    {agent.description}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  </div>
-)}
 
                   {/* Custom Agents - Compact with Better Edit/Delete */}
                   {(!searchQuery || filteredCustomAgents.length > 0) && (
@@ -1020,40 +1038,37 @@ export default function UnifiedSidebar({
                           return (
                             <div
                               key={agent.id}
-                              className={`group relative p-2 rounded-xl transition-all duration-200 border ${
-                                isSelected
-                                  ? "border-purple-300 bg-gradient-to-r from-purple-50 to-pink-50"
-                                  : !isActive
-                                    ? "border-gray-200 bg-gray-100"
-                                    : "border-none hover:border-purple-200 hover:bg-gray-50"
-                              } ${isActive ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                              className={`group relative p-2 rounded-xl transition-all duration-200 border ${isSelected
+                                ? "border-purple-300 bg-gradient-to-r from-purple-50 to-pink-50"
+                                : !isActive
+                                  ? "border-gray-200 bg-gray-100"
+                                  : "border-none hover:border-purple-200 hover:bg-gray-50"
+                                } ${isActive ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                             >
                               {/* Clickable area for selection */}
-                              <div 
+                              <div
                                 onClick={() => {
                                   if (!isActive) {
-                                    alert(`${agent.name} is currently inactive. Please activate it first.`);
+                                    showToast.error(`${agent.name} is inactive. Please activate it first.`);
                                     return;
                                   }
                                   handleSelectAgent(agent);
                                 }}
                                 className="flex items-center gap-2"
                               >
-                                <div className={`p-1.5 rounded-lg ${
-                                  isSelected 
-                                    ? "bg-gradient-to-br from-purple-200 to-pink-200" 
-                                    : !isActive
-                                      ? "bg-gray-200"
-                                      : "bg-gradient-to-br from-purple-100 to-pink-50"
-                                }`}>
+                                <div className={`p-1.5 rounded-lg ${isSelected
+                                  ? "bg-gradient-to-br from-purple-200 to-pink-200"
+                                  : !isActive
+                                    ? "bg-gray-200"
+                                    : "bg-gradient-to-br from-purple-100 to-pink-50"
+                                  }`}>
                                   <UserGroupIcon className={`w-4 h-4 ${!isActive ? 'text-gray-500' : 'text-purple-600'}`} />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-1">
-                                      <h4 className={`font-medium text-sm truncate ${
-                                        !isActive ? 'text-gray-500' : 'text-gray-800'
-                                      }`}>
+                                      <h4 className={`font-medium text-sm truncate ${!isActive ? 'text-gray-500' : 'text-gray-800'
+                                        }`}>
                                         {agent.name}
                                       </h4>
                                       <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-gray-400'}`} />
@@ -1063,19 +1078,22 @@ export default function UnifiedSidebar({
                                     )}
                                   </div>
                                   <div className="flex items-center gap-1 mt-0.5">
-                                    <div className={`flex items-center gap-1 text-xs ${
-                                      !isActive ? 'text-gray-500' : 'text-gray-600'
-                                    }`}>
+                                    <div className={`flex items-center gap-1 text-xs ${!isActive ? 'text-gray-500' : 'text-gray-600'
+                                      }`}>
                                       {modelIcon}
                                       <span>{modelName}</span>
                                     </div>
-                                    {!isActive && (
-                                      <span className="text-xs text-gray-500 ml-2">(Inactive)</span>
+                                    {isActive ? (
+                                      <div className="w-2 h-2 rounded-full bg-green-500" title="Active" />
+                                    ) : (
+                                      <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded-full">
+                                        Inactive
+                                      </span>
                                     )}
                                   </div>
                                 </div>
                               </div>
-                              
+
                               {/* Action Menu for Custom Agents */}
                               {!agent.isBuiltIn && (
                                 <div className="absolute right-1 top-1">
@@ -1160,21 +1178,18 @@ export default function UnifiedSidebar({
             <div className="pt-3 border-t border-gray-200 mt-auto relative">
               <button
                 onClick={() => setShowProfileModal((prev) => !prev)}
-                className={`w-full flex items-center gap-2 px-2 py-2 rounded-xl transition-all duration-200 text-left ${
-                  showProfileModal
-                    ? "bg-purple-100 text-purple-700"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
+                className={`w-full flex items-center gap-2 px-2 py-2 rounded-xl transition-all duration-200 text-left ${showProfileModal
+                  ? "bg-purple-100 text-purple-700"
+                  : "text-gray-600 hover:bg-gray-50"
+                  }`}
               >
                 <div
-                  className={`p-1 rounded-lg ${
-                    showProfileModal ? "bg-white" : "bg-gray-100"
-                  }`}
+                  className={`p-1 rounded-lg ${showProfileModal ? "bg-white" : "bg-gray-100"
+                    }`}
                 >
                   <UserIcon
-                    className={`w-4 h-4 ${
-                      showProfileModal ? "text-purple-600" : "text-gray-600"
-                    }`}
+                    className={`w-4 h-4 ${showProfileModal ? "text-purple-600" : "text-gray-600"
+                      }`}
                   />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -1204,13 +1219,12 @@ export default function UnifiedSidebar({
                         className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 text-left"
                       >
                         <div
-                          className={`p-1 rounded-lg ${
-                            item.color === "text-red-600"
-                              ? "bg-red-50"
-                              : item.color === "text-purple-600"
+                          className={`p-1 rounded-lg ${item.color === "text-red-600"
+                            ? "bg-red-50"
+                            : item.color === "text-purple-600"
                               ? "bg-purple-50"
                               : "bg-gray-100"
-                          }`}
+                            }`}
                         >
                           <item.icon className={`w-4 h-4 ${item.color}`} />
                         </div>
@@ -1236,7 +1250,7 @@ export default function UnifiedSidebar({
       )}
 
       {/* Settings Panel */}
-      <SettingsPanel 
+      <SettingsPanel
         isOpen={showSettingsPanel}
         onClose={() => {
           setShowSettingsPanel(false);

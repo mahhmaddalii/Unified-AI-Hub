@@ -352,7 +352,7 @@ const finalIsEditMode = !forceCreateMode && isEditMode;
       {/* Modal Container */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
-          className="bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-200 max-h-[90vh] overflow-y-auto"
+          className="bg-white rounded-xl shadow-xl w-full max-w-md border border-gray-200 max-h-[90vh] overflow-y-auto scrollbar-thin"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Modal Header */}
@@ -525,7 +525,7 @@ const finalIsEditMode = !forceCreateMode && isEditMode;
                       
                       {/* Dropdown Menu */}
                       {isModelDropdownOpen && (
-                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 ">
                           <div className="p-2 space-y-1">
                             {aiModels.map((model) => (
                               <button
