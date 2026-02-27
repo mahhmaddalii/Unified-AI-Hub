@@ -11,6 +11,7 @@ export const toastStyles = `
     border: 1px solid rgba(255, 255, 255, 0.2) !important;
     background: white !important;
     margin-bottom: 8px !important;
+    overflow: hidden !important;
   }
   
   .Toastify__toast-body {

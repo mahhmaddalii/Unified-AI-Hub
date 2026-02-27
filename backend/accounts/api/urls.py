@@ -13,4 +13,5 @@ urlpatterns = [
     # Chat
     path('chat/', include('accounts.api.chat.urls')),
     path('custom_agents/', include('accounts.api.custom_agents.urls')),
+    path('cricket_agent/', include('accounts.api.cricket_agent.urls')),
 ]

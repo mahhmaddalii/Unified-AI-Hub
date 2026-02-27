@@ -272,7 +272,7 @@ const MarkdownComponents = {
     </blockquote>
   ),
 
-  // ─── TABLES with 100% WORKING Copy Icon (reads from DOM) ───
+  // ─── TABLES with copy icon (reads from DOM) ───
 table: ({ children }) => {
   const [copied, setCopied] = React.useState(false);
   const tableRef = React.useRef(null);
@@ -528,26 +528,31 @@ const sendMessage = useCallback(async () => {
   // Trigger AI response whenever user sends something valid
   const apiText = hasText ? input.trim() : "[User sent files]";
 
-  let url;
-  if (selectedAgent && !selectedAgent.isBuiltIn) {
-    url = `http://127.0.0.1:8000/api/custom_agents/stream/?agent_id=${encodeURIComponent(
-      selectedAgent.id
-    )}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(
-      selectedAgent.model || "gemini-flashlite"
-    )}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(
-      selectedAgent.customPrompt || ""
-    )}&text=${encodeURIComponent(apiText)}`;
-    
-    console.log("🤖 Using CUSTOM AGENT endpoint:", url);
-  } else {
-    url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
-      apiText
-    )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(
-      currentChatId || ''
-    )}&is_first_message=${isFirstMessage}`;
-    
-    console.log("💬 Using REGULAR CHAT endpoint:", url);
-  }
+  // ----- MODIFIED: Check if we're using a custom agent -----
+let url;
+if (selectedAgent && !selectedAgent.isBuiltIn) {
+  // Regular custom agent
+  url = `http://127.0.0.1:8000/api/custom_agents/stream/?agent_id=${encodeURIComponent(
+    selectedAgent.id
+  )}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(
+    selectedAgent.model || "gemini-flashlite"
+  )}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(
+    selectedAgent.customPrompt || ""
+  )}&text=${encodeURIComponent(apiText)}`;
+  
+} else if (selectedAgent?.id === 'builtin-cricket') {
+  // Cricket agent - uses chat_id for persistence
+   url = `http://127.0.0.1:8000/api/cricket_agent/stream/?text=${encodeURIComponent(apiText)}`;
+  console.log("🏏 Cricket Agent Stream:", url);
+  
+} else {
+  // Regular chat
+  url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(
+    apiText
+  )}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(
+    currentChatId || ''
+  )}&is_first_message=${isFirstMessage}`;
+}
 
   if (onSetLoading) onSetLoading(true);
 
