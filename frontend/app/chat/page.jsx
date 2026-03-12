@@ -563,7 +563,7 @@ function ChatPageContent() {
                       isLoading={activeChatId ? isChatLoading(activeChatId) : false}
                       onSetLoading={(loading) => activeChatId && setChatLoading(activeChatId, loading)}
                       selectedAgent={contextSelectedAgent}
-                      key={activeChatId}
+                      // key={activeChatId}
                     />
                   </div>
                 )}

@@ -217,19 +217,41 @@ def livescore6_live(query: str) -> str:
     except Exception as e:
         return f"livescore6_live failed: {str(e)[:300]}"
 
-def livescore6_specific_match(query: str) -> str:
-    """Improved specific match finder - works for men & women, full names, short forms, and vague queries"""
-    
-    # Normalize query for cache key
-    normalized = re.sub(r'[^\w\s]', '', query.lower().strip())
-    normalized = " ".join(normalized.split())
-    normalized = normalized[:100]
-    cache_key = f"cricket:specific:{normalized.replace(' ', '_')}"
+# backend/accounts/api/cricket_agent/tools.py
 
+def livescore6_specific_match(query: str) -> str:
+    """Get live score for a specific match - ONLY returns exact match, no fallbacks"""
+    
+    # First, extract clean team names from query
+    query_lower = query.lower()
+    
+    # Parse the "team1 vs team2" pattern
+    vs_parts = re.split(r'\s+vs?\s+', query_lower)
+    if len(vs_parts) != 2:
+        return "no matching match found - invalid query format"
+    
+    team1_raw = vs_parts[0].strip()
+    team2_raw = vs_parts[1].strip()
+    
+    # Remove common words
+    team1_clean = re.sub(r'\b(keep|sending|updates|for|live|automatic|every|minute|second|please|now|the)\b', '', team1_raw).strip()
+    team2_clean = re.sub(r'\b(keep|sending|updates|for|live|automatic|every|minute|second|please|now|the)\b', '', team2_raw).strip()
+    
+    # Sort team names to ensure consistent cache key regardless of order
+    teams = sorted([team1_clean, team2_clean])
+    cache_key = f"cricket:match:{teams[0]}:{teams[1]}:{datetime.now().strftime('%Y%m%d')}"
+    
+    print(f"🔑 Cache key: {cache_key}")
+
+    # Check cache
     cached = cache.get(cache_key)
     if cached:
-        print("Cache HIT - specific match")
-        return cached + "\n*(cached — updated recently)*"
+        if cached.startswith("no matching match"):
+            print(f"Cache contained 'no match' for {query}, ignoring cache")
+            cache.delete(cache_key)
+        else:
+            print(f"Cache HIT - specific match: {query}")
+            return cached
 
     try:
         today_str = datetime.now().strftime("%Y%m%d")
@@ -240,95 +262,154 @@ def livescore6_specific_match(query: str) -> str:
             timeout=12
         )
         
-        if resp.status_code == 200:
-            data = resp.json()
-            stages = data.get("Stages", [])
-
-            query_lower = query.lower()
-            query_words = set(re.findall(r'\w+', query_lower))
-
-            found_matches = []
-            best_score = 0
-            best_event = None
-
-            print(f"Searching for: {query_lower}")  # DEBUG
-
-            # Comprehensive team mapping (full name → short forms)
-            team_map = {
-                "australia": ["aus", "au", "australia"],
-                "india": ["ind", "in", "india"],
-                "pakistan": ["pak", "pk", "pakistan"],
-                "england": ["eng", "en", "england"],
-                "south africa": ["sa", "rsa", "south africa"],
-                "new zealand": ["nz", "new zealand"],
-                "sri lanka": ["sl", "sri lanka"],
-                "west indies": ["wi", "west indies"],
-                "bangladesh": ["ban", "bd", "bangladesh"],
-                "afghanistan": ["afg", "afghanistan"],
-                # Women variants
-                "australia women": ["aus w", "australia w", "aus women"],
-                "india women": ["ind w", "india w", "ind women"],
-                "pakistan women": ["pak w", "pakistan w"],
-                "england women": ["eng w", "england w"],
-                # Add more if needed
-            }
-
-            for stage in stages:
-                for event in stage.get("Events", []):
-                    match_name = (event.get("Esnm") or "").lower()
-                    series = (event.get("Sn") or "").lower()
-                    t1_full = event.get("T1", [{}])[0].get("Nm", "").lower()
-                    t2_full = event.get("T2", [{}])[0].get("Nm", "").lower()
-                    t1_short = event.get("T1", [{}])[0].get("Snm", "").lower()
-                    t2_short = event.get("T2", [{}])[0].get("Snm", "").lower()
-
-                    all_text = f"{match_name} {series} {t1_full} {t2_full} {t1_short} {t2_short}"
-
-                    score = 0
-                    for word in query_words:
-                        # Full team name match (highest score)
-                        if word in all_text:
-                            score += 4
-                        # Short form match
-                        for full, shorts in team_map.items():
-                            if word in shorts and (full in all_text or any(s in all_text for s in shorts)):
-                                score += 6  # Very high score for short forms
-                                break
-
-                    print(f"Match: {t1_full} vs {t2_full} | Score: {score}")  # DEBUG
-
-                    if score > best_score:
-                        best_score = score
-                        best_event = event
-
-            # Lower threshold to catch more valid matches
-            if best_event and best_score >= 4:
-                t1_name = best_event.get("T1", [{}])[0].get("Nm", "Team 1")
-                t2_name = best_event.get("T2", [{}])[0].get("Nm", "Team 2")
-                score1 = f"{best_event.get('Tr1C1', '?')}/{best_event.get('Tr1CW1', '?')} ({best_event.get('Tr1CO1', '?')})"
-                score2 = f"{best_event.get('Tr2C1', '?')}/{best_event.get('Tr2CW1', '?')} ({best_event.get('Tr2CO1', '?')})"
-                status = best_event.get("EpsL", "N/A")
-                result_text = best_event.get("ECo", "")
-
-                content = f"# 🏏 {t1_name} vs {t2_name}\n\n"
-                content += f"**{t1_name}** {score1} vs **{t2_name}** {score2}\n"
-                content += f"Status: *{status}*\n"
-                if result_text:
-                    content += f"Result: {result_text}\n"
-                content += "\n**Sources:** LiveScore6 via RapidAPI"
-
-                cache.set(cache_key, content, timeout=10)
-                return content
-            else:
-                print(f"No good match found (best score: {best_score}) → fallback to Tavily")
-
-        # === FALLBACK TO TAVILY ===
-        fallback_query = f"{query} full scorecard OR detailed result OR match summary OR score OR runs wickets overs"
-        print(f"LiveScore6 no match → falling back to Tavily: {fallback_query}")
-        return cricket_search_tool(fallback_query)
-
+        if resp.status_code != 200:
+            return f"API error: {resp.status_code}"
+        
+        data = resp.json()
+        stages = data.get("Stages", [])
+        
+        # Comprehensive team map (full name → possible variations)
+        # Order matters: more specific entries first
+        team_map = {
+            # International men
+            "australia": ["australia", "aus"],
+            "india": ["india", "ind"],
+            "pakistan": ["pakistan", "pak"],
+            "england": ["england", "eng"],
+            "south africa": ["south africa", "sa", "rsa"],
+            "new zealand": ["new zealand", "nz"],
+            "sri lanka": ["sri lanka", "sl"],
+            "west indies": ["west indies", "wi"],
+            "bangladesh": ["bangladesh", "ban"],
+            "afghanistan": ["afghanistan", "afg"],
+            "zimbabwe": ["zimbabwe", "zim"],
+            "ireland": ["ireland", "ire"],
+            "scotland": ["scotland", "sco"],
+            "netherlands": ["netherlands", "ned"],
+            
+            # Women
+            "australia women": ["australia women", "aus w", "australia w"],
+            "india women": ["india women", "ind w", "india w"],
+            "england women": ["england women", "eng w", "england w"],
+            "new zealand women": ["new zealand women", "nz w", "new zealand w"],
+            
+            # New Zealand domestic
+            "auckland aces": ["auckland aces", "auckland", "aces"],
+            "canterbury kings": ["canterbury kings", "canterbury", "kings"],
+            "wellington firebirds": ["wellington firebirds", "wellington", "firebirds"],
+            "otago volts": ["otago volts", "otago", "volts"],
+            "northern districts": ["northern districts", "northern"],
+            "central districts": ["central districts", "central"],
+            
+            # South Africa domestic
+            "eastern cape iinyathi": ["eastern cape iinyathi", "eastern cape", "iinyathi"],
+            "eastern storm": ["eastern storm", "storm"],
+            "limpopo impalas": ["limpopo impalas", "limpopo", "impalas"],
+            "mpumalanga rhinos": ["mpumalanga rhinos", "mpumalanga", "rhinos"],
+            "knights": ["knights", "free state"],
+            "dolphins": ["dolphins", "kzn"],
+            "lions": ["lions", "gauteng"],
+            "titans": ["titans", "northerns"],
+            "warriors": ["warriors", "border"],
+            "western province": ["western province", "wp"],
+        }
+        
+        def normalize_team(team_name):
+            """Convert team name to standard form using whole-word matching"""
+            team_lower = team_name.lower()
+            for standard, variations in team_map.items():
+                for var in variations:
+                    # Use word boundaries to avoid substring false positives
+                    pattern = r'\b' + re.escape(var) + r'\b'
+                    if re.search(pattern, team_lower):
+                        return standard
+            return team_lower  # fallback: return as-is
+        
+        team1_norm = normalize_team(team1_clean)
+        team2_norm = normalize_team(team2_clean)
+        
+        print(f"Normalized: '{team1_norm}' vs '{team2_norm}'")
+        
+        exact_match = None
+        
+        # Search through all events
+        for stage in stages:
+            for event in stage.get("Events", []):
+                # Get team names from API
+                t1_full = event.get("T1", [{}])[0].get("Nm", "").lower()
+                t2_full = event.get("T2", [{}])[0].get("Nm", "").lower()
+                t1_short = event.get("T1", [{}])[0].get("Snm", "").lower()
+                t2_short = event.get("T2", [{}])[0].get("Snm", "").lower()
+                
+                # Normalize API team names as well
+                event_team1_norm = normalize_team(t1_full)
+                event_team2_norm = normalize_team(t2_full)
+                
+                # Check if this match matches the query (in either order)
+                if (team1_norm == event_team1_norm and team2_norm == event_team2_norm) or \
+                   (team1_norm == event_team2_norm and team2_norm == event_team1_norm):
+                    # Found exact match
+                    exact_match = event
+                    print(f"✓ Found exact match: {t1_full} vs {t2_full}")
+                    break
+                
+                # Also try short names if exact match not found
+                if (team1_norm in t1_short and team2_norm in t2_short) or \
+                   (team1_norm in t2_short and team2_norm in t1_short):
+                    # Verify it's the same teams by checking full names
+                    if (team1_norm in event_team1_norm or team1_norm in event_team2_norm) and \
+                       (team2_norm in event_team1_norm or team2_norm in event_team2_norm):
+                        exact_match = event
+                        print(f"✓ Found via short names: {t1_full} vs {t2_full}")
+                        break
+            if exact_match:
+                break
+        
+        if exact_match:
+            # Check if match is live
+            status = exact_match.get("EpsL", "").lower()
+            is_live = any(word in status for word in ["live", "progress", "stump", "innings", "rain", "delay"])
+            
+            if not is_live:
+                print(f"Match found but not live: {status}")
+                return f"no matching match found - {t1_full} vs {t2_full} is not currently live (Status: {status})"
+            
+            # Format the response
+            t1_name = exact_match.get("T1", [{}])[0].get("Nm", "Team 1")
+            t2_name = exact_match.get("T2", [{}])[0].get("Nm", "Team 2")
+            
+            # Get scores
+            t1_runs = exact_match.get('Tr1C1', '?')
+            t1_wickets = exact_match.get('Tr1CW1', '?')
+            t1_overs = exact_match.get('Tr1CO1', '?')
+            t2_runs = exact_match.get('Tr2C1', '?')
+            t2_wickets = exact_match.get('Tr2CW1', '?')
+            t2_overs = exact_match.get('Tr2CO1', '?')
+            
+            # Format scores nicely
+            t1_score = f"{t1_runs}/{t1_wickets}" if t1_wickets != '?' else t1_runs
+            t2_score = f"{t2_runs}/{t2_wickets}" if t2_wickets != '?' else t2_runs
+            
+            result_text = exact_match.get("ECo", "")
+            
+            content = f"# 🏏 **{t1_name} vs {t2_name}**\n\n"
+            content += f"**{t1_name}:** {t1_score} ({t1_overs} ov)\n"
+            content += f"**{t2_name}:** {t2_score} ({t2_overs} ov)\n"
+            content += f"**Status:** *{status}*\n"
+            if result_text:
+                content += f"**Result:** {result_text}\n"
+            
+            
+            cache.set(cache_key, content, timeout=10)
+            return content
+        
+        # No match found
+        print(f"❌ No match found for {team1_clean} vs {team2_clean}")
+        return "no matching match found"
+        
     except Exception as e:
-        return f"Error fetching match details: {str(e)[:200]}"
+        print(f"Error in livescore6_specific_match: {str(e)}")
+        return f"Error fetching match details"
 
 def cricket_search_tool(query: str) -> str:
     # Normalize very aggressively

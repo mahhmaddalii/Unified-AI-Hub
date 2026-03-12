@@ -7,6 +7,8 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
+from django.core.cache import cache
+from .tools import livescore6_specific_match, cricket_search_tool
 
 from .tools import (
     livescore6_daily_tool,
@@ -28,7 +30,7 @@ llm = ChatOpenAI(
 )
 
 # ────────────────────────────────────────────────
-# System Prompt — updated with ambiguous team rule
+# System Prompt — minor change: added LIVE UPDATES FEATURE section
 # ────────────────────────────────────────────────
 
 SYSTEM_PROMPT = f"""You are a helpful Cricket Update Assistant. Today is {datetime.now().strftime("%B %d, %Y")}. Time in Pakistan: {datetime.now().strftime("%I:%M %p PKT")}.
@@ -38,6 +40,14 @@ CORE RULES:
 - Use tools ONLY when needed for current/live/recent cricket data or news.
 - For general knowledge (rules, terms, history, records before 2020) → answer directly — NO tool.
 - NEVER hallucinate scores, dates, players or events.
+
+LIVE UPDATES FEATURE RULE:
+- If user asks for "live updates", "automatic updates", "send updates every minute", "keep sending score", "live score updates" for a specific match:
+  - Respond exactly: "Starting live updates for [match name]. Updates every 60 seconds. Say 'stop' or 'stop updates' to end."
+  - Extract the match name (e.g. "Pakistan vs India") from the query.
+- If user says "stop", "stop updates", "end updates":
+  - Respond: "Live updates stopped. Back to normal chat. 🏏 Ask me more!"
+- Do NOT call tools repeatedly for updates — the backend handles periodic sending.
 
 TOOL USAGE RULES — VERY STRICT:
 - Choose **only the most relevant tool** — at most one call per turn.
@@ -69,6 +79,15 @@ TOOL PRIORITY (choose ONE):
 2. livescore6_specific → specific team/match queries (only when clearly current/today)
 3. livescore6_daily → general "today's matches", "all matches today"
 4. tavily_cricket → news, squad announcements, PCB/BCCI, past/future matches, or when LiveScore6 has no data
+
+LIVE UPDATE SUGGESTION RULE:
+- If the user query mentions two teams in a match format (e.g., "Pakistan vs England"):
+  Suggest:
+  💡 If you want automatic live score updates for this match, type:
+  "live updates for [team1] vs [team2]"
+  I will send you updates every 60 seconds.
+
+- Only show if both teams exist in the query.
 
 SOURCE RULES:
 - **Sources:** only when using tavily_cricket — list 1–3 links
@@ -103,7 +122,7 @@ prompt = ChatPromptTemplate.from_messages([
 ])
 
 # ────────────────────────────────────────────────
-# Tools (your existing ones)
+# Tools (unchanged)
 # ────────────────────────────────────────────────
 
 tools = [
@@ -114,7 +133,7 @@ tools = [
 ]
 
 # ────────────────────────────────────────────────
-# Create agent
+# Create agent (unchanged)
 # ────────────────────────────────────────────────
 
 agent = create_openai_tools_agent(llm, tools, prompt)
@@ -129,16 +148,36 @@ agent_executor = AgentExecutor(
 )
 
 # ────────────────────────────────────────────────
-# Chat history (simple list — can be per-user later)
+# Chat history (unchanged)
 # ────────────────────────────────────────────────
 
 chat_history = []
 
-def get_cricket_response(query: str):
+
+# backend/accounts/api/cricket_agent/agent.py
+
+def get_cricket_response(query: str, thread_id="cricket_agent_chat"):
     global chat_history
 
-    # NO pre-check for year or team pairs — let the agent decide
+    q = query.lower().strip()
 
+    # For live update requests, use direct API for speed
+    if "live update" in q and cache.get(f"cricket_live_update_active_{thread_id}"):
+        match_key = f"cricket_live_update_match_{thread_id}"
+        match_query = cache.get(match_key)
+        
+        if match_query:
+            print(f"Getting live update for {match_query} (thread: {thread_id})")
+            # Direct API call for speed
+            update = livescore6_specific_match(match_query)
+            
+            # If no match data, try Tavily
+            if "no matching match" in update.lower() or "error" in update.lower():
+                update = tavily_cricket(f"{match_query} latest live score OR current result OR update")
+            
+            return update
+
+    # Normal agent flow for regular queries
     try:
         result = agent_executor.invoke({
             "input": query,
@@ -147,6 +186,7 @@ def get_cricket_response(query: str):
 
         answer = result["output"].strip()
 
+        # Store in chat history
         chat_history.append(HumanMessage(content=query))
         chat_history.append(AIMessage(content=answer))
 
@@ -157,8 +197,8 @@ def get_cricket_response(query: str):
 
     except Exception as e:
         print(f"Agent error: {type(e).__name__}: {str(e)}")
-        return f"⚠️ Sorry, something went wrong. Try again in a moment."
-    
+        return f"⚠️ Error: {str(e)}"
+
 def reset_cricket_chat():
     global chat_history
     chat_history = []
