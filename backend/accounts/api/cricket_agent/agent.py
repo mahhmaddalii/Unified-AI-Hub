@@ -91,7 +91,6 @@ LIVE UPDATE SUGGESTION RULE:
 
 SOURCE RULES:
 - **Sources:** only when using tavily_cricket — list 1–3 links
-- For LiveScore6 tools — end with "**Sources:** LiveScore6 via RapidAPI"
 
 FORMATTING:
 - # for main titles

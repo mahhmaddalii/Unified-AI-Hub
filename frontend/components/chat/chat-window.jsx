@@ -584,7 +584,8 @@ export default function ChatWindow({
       liveUpdateModel: null,
       liveUpdateThreadId: usedThreadId,  // FIX: store for stop signal
       detectedStart: false,
-      detectedStop: false
+      detectedStop: false,
+      lastNotifBlockText: null,
     });
 
     let inactivityTimeout = setTimeout(() => {
@@ -749,19 +750,40 @@ export default function ChatWindow({
         state.buffer = "";
       }
 
-      // ── NOTIFY: fires for ANY chunk when the browser tab is hidden ──────────
-      // Works whether this is the active chat (user switched browser tab) or a
-      // background chat. The hook's own isTabHiddenRef gates it — no double-fire.
-      // Throttled: only once per second per stream to avoid spamming for live updates.
-      const lastNotifKey = `lastNotifTime_${targetChatId}`;
-      const lastNotifTime = state[lastNotifKey] || 0;
-      if (now - lastNotifTime > 1000) {
-        state[lastNotifKey] = now;
-        notifyMessage(
-          selectedAgent?.name || "AI Assistant",
-          state.assistantMessage?.text || "",
-          state.hasLiveUpdates
+      // ── NOTIFY: once per live update block, once per second for regular msgs ─
+      // For live updates: detect when a NEW block header arrives (🔴 or 📰),
+      // notify exactly once for that block, then suppress until next header.
+      // For regular messages: throttle to once per second as before.
+      if (state.hasLiveUpdates) {
+        // Detect a new update block by looking for block header tokens in the
+        // most recent buffer chunk (not the full text, to avoid re-triggering)
+        const recentChunk = state.buffer || processed || "";
+        const isNewBlock = (
+          recentChunk.includes("LIVE UPDATE") ||
+          recentChunk.includes("FIRST UPDATE") ||
+          recentChunk.includes("📰 FIRST") ||
+          recentChunk.includes("🔴 LIVE")
         );
+        if (isNewBlock && !state.lastNotifBlockText?.includes(recentChunk)) {
+          state.lastNotifBlockText = recentChunk;
+          notifyMessage(
+            selectedAgent?.name || "AI Assistant",
+            state.assistantMessage?.text || "",
+            true
+          );
+        }
+      } else {
+        // Regular message — throttle to once per second
+        const lastNotifKey = `lastNotifTime_${targetChatId}`;
+        const lastNotifTime = state[lastNotifKey] || 0;
+        if (now - lastNotifTime > 1000) {
+          state[lastNotifKey] = now;
+          notifyMessage(
+            selectedAgent?.name || "AI Assistant",
+            state.assistantMessage?.text || "",
+            false
+          );
+        }
       }
     };
 
