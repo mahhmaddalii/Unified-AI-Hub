@@ -7,111 +7,255 @@ from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 
 from .agent import get_politics_response, reset_politics_chat
-from .tools import real_time_news_search
+from .tools import (
+    real_time_news_search,
+    real_time_news_first,
+    real_time_news_cycle,
+    classify_topic_relevance,
+)
+
+UPDATE_INTERVAL = 10   # seconds — change to 600 for production
+
+
+def _stream_text(text: str):
+    """
+    Split text on spaces and yield each token as an SSE chunk.
+    Newlines embedded in a token survive because we escape them as \\n
+    before splitting — the frontend un-escapes them when rendering.
+    """
+    # Escape real newlines so they survive the word-split intact
+    escaped = text.replace('\n', '\\n')
+    for word in escaped.split(' '):
+        yield f"data: {word} \n\n"
+        time.sleep(0.02)
+
 
 @csrf_exempt
 @require_GET
 def politics_stream(request):
-    query = request.GET.get("text", "").strip()
+    query     = request.GET.get("text", "").strip()
     thread_id = request.GET.get("thread_id", "politics_agent_chat")
 
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
-    
-    print(f"📰 Politics Request: {query[:50]}... (thread: {thread_id})")
-    
+
+    print(f"📰 Politics request: {query[:60]}… (thread: {thread_id})")
+
     def stream_response():
         try:
-            # ─── STOP COMMAND ───
+            flag_key    = f"politics_news_active_{thread_id}"
+            topic_key   = f"politics_news_topic_{thread_id}"
+            signal_key  = f"politics_news_signal_{thread_id}"
+            counter_key = f"politics_news_counter_{thread_id}"
+
+            # ── STOP COMMAND ──────────────────────────────────────────────────
             if query.lower() in ["stop", "stop news", "stop updates", "end news"]:
-                flag_key = f"politics_news_active_{thread_id}"
-                topic_key = f"politics_news_topic_{thread_id}"
-                signal_key = f"politics_news_signal_{thread_id}"
-                
                 cache.set(signal_key, True, timeout=60)
-                
+
                 if cache.get(flag_key):
                     cache.delete(flag_key)
                     cache.delete(topic_key)
-                    print(f"Politics news STOPPED for {thread_id} - flags deleted")
-                
-                stop_msg = "🛑 Politics news updates stopped. Ask me anything else! 📰"
-                for word in stop_msg.split(" "):
-                    yield f"data: {word.replace('\n', '\\n')} \n\n"
-                    time.sleep(0.02)
+                    cache.delete(counter_key)
+                    print(f"Politics news STOPPED for {thread_id}")
+                    # Don't yield a message here — the live loop yields it
+                    # (mirrors cricket agent pattern to avoid double/disappearing messages)
+                else:
+                    yield from _stream_text("No active news updates to stop.")
+
                 yield "data: [DONE]\n\n"
                 return
-            
-            # ─── LIVE NEWS ALREADY ACTIVE ───
-            flag_key = f"politics_news_active_{thread_id}"
-            topic_key = f"politics_news_topic_{thread_id}"
-            signal_key = f"politics_news_signal_{thread_id}"
-            
+
+            # ── LIVE LOOP ALREADY ACTIVE (re-connection) ──────────────────────
             if cache.get(flag_key):
-                topic = cache.get(topic_key)
-                update_interval = 10  # 10 minutes
-                
-                print(f"Entering politics news loop for {thread_id} - topic: {topic}")
-                
-                # Initial update already sent by agent — here we do subsequent
+                topic   = cache.get(topic_key, "politics")
+                counter = cache.get(counter_key, 1)
+                print(f"Re-entering live news loop for {thread_id} — topic: {topic}")
+                cache.delete(signal_key)
+
+                # Immediate update on reconnect
+                payload = real_time_news_cycle(topic, counter)
+                cache.set(counter_key, counter + 1, timeout=3600)
+                yield from _stream_text(payload)
+
                 while cache.get(flag_key):
                     stopped = False
-                    for i in range(update_interval):
+                    for _ in range(UPDATE_INTERVAL):
                         if cache.get(signal_key):
-                            print(f"Stop signal DETECTED — exiting politics news loop for {thread_id}")
                             cache.delete(signal_key)
                             cache.delete(flag_key)
                             cache.delete(topic_key)
-                            yield "data: \n\n🛑 Politics news updates stopped.\n\n"
+                            cache.delete(counter_key)
+                            yield from _stream_text("\n\n🛑 Live updates stopped. Ask me anything else! 📰")
                             stopped = True
                             break
-                        
                         if not cache.get(flag_key):
                             stopped = True
                             break
                         time.sleep(1)
-                    
+
                     if stopped:
                         break
-                    
-                    update = real_time_news_search(topic, limit=3)
-                    timestamp = datetime.now().strftime('%I:%M %p')
-                    separator = f"\n\n--- 🔴 Latest Politics Update ({timestamp}) ---\n\n"
-                    yield f"data: {separator.replace('\n', '\\n')}{update.replace('\n', '\\n')}\n\n"
-                
-                print(f"Politics news loop ended for {thread_id}")
+
+                    counter = cache.get(counter_key, 1)
+                    payload = real_time_news_cycle(topic, counter)
+                    cache.set(counter_key, counter + 1, timeout=3600)
+
+                    for word in payload.replace('\n', '\\n').split(' '):
+                        if cache.get(signal_key) or not cache.get(flag_key):
+                            break
+                        yield f"data: {word} \n\n"
+                        time.sleep(0.02)
+
+                print(f"Politics live news loop ended for {thread_id}")
                 yield "data: [DONE]\n\n"
                 return
-            
-            # ─── NORMAL QUERY or START LIVE NEWS ───
+
+            # ── TRIGGER PHRASE DETECTION ──────────────────────────────────────
+            q_lower = query.lower()
+
+            SPECIAL_PHRASE = "live politics news"
+
+            trigger_phrases = [
+                # "for" variants
+                "automatic news updates for",
+                "keep sending news for",
+                "latest news updates for",
+                "news every few minutes for",
+                "live news updates for",
+                "live politics news for",
+                "live updates for",
+                "live news for",
+                # "of" variants — catches "live updates of X"
+                "live updates of",
+                "live news of",
+                "live news updates of",
+                # "on" variants — catches "live updates on X"
+                "live updates on",
+                "live news on",
+                "live news updates on",
+                # "about" variants
+                "live updates about",
+                "live news about",
+                # plain starts
+                "starting live updates",
+                "start live updates",
+                "start live news",
+            ]
+
+            topic = None
+
+            if q_lower == SPECIAL_PHRASE or (
+                q_lower.startswith(SPECIAL_PHRASE)
+                and not q_lower.startswith("live politics news for")
+                and not q_lower.startswith("live politics news of")
+                and not q_lower.startswith("live politics news on")
+            ):
+                topic = "politics"
+            else:
+                for phrase in trigger_phrases:
+                    if q_lower.startswith(phrase):
+                        raw = q_lower[len(phrase):].strip()
+                        # Strip trailing filler words
+                        for filler in ["please", "now", "updates", "news",
+                                       "automatically", "every", "minute", "minutes"]:
+                            if raw.endswith(filler):
+                                raw = raw[:-len(filler)].strip()
+                        # If nothing left after stripping, default to general politics
+                        topic = raw if raw else "politics"
+                        break
+
+            if topic is not None:
+                print(f"📰 Live trigger fired — raw topic: '{topic}'")
+
+                # ── Relevance gate ────────────────────────────────────────────
+                check = classify_topic_relevance(topic)
+                if not check["relevant"]:
+                    print(f"❌ Topic rejected: '{topic}'")
+                    yield from _stream_text(check["reason"])
+                    yield "data: [DONE]\n\n"
+                    return
+
+                # Use the refined query (e.g. "political news world" for vague inputs)
+                refined_topic = check["refined_query"]
+                print(f"✅ Topic accepted — refined: '{refined_topic}'")
+
+                # ── Pre-flight news check ─────────────────────────────────────
+                news_check = real_time_news_search(refined_topic, limit=2)
+                if "No recent political news found" in news_check or news_check.startswith("Failed"):
+                    yield from _stream_text(
+                        f"Sorry, I couldn't find recent political news for **{topic}**. "
+                        f"Please try a more specific topic."
+                    )
+                    yield "data: [DONE]\n\n"
+                    return
+
+                # ── Set cache flags ───────────────────────────────────────────
+                cache.delete(signal_key)
+                cache.set(flag_key,    True,          timeout=3600)
+                cache.set(topic_key,   refined_topic, timeout=3600)
+                cache.set(counter_key, 2,             timeout=3600)  # first = #1, next = #2
+
+                # ── Intro message ─────────────────────────────────────────────
+                topic_display = topic.title()
+                start_msg = (
+                    f"📡 Starting live politics news for **{topic_display}**.\n"
+                    f"Updates every {UPDATE_INTERVAL} seconds · Say **'stop news'** to end."
+                )
+                yield from _stream_text(start_msg)
+
+                # ── First update (distinct header style) ─────────────────────
+                first_block = real_time_news_first(refined_topic)
+                yield from _stream_text(first_block)
+
+                # ── Live update loop ──────────────────────────────────────────
+                while cache.get(flag_key):
+                    stopped = False
+                    for _ in range(UPDATE_INTERVAL):
+                        if cache.get(signal_key):
+                            cache.delete(signal_key)
+                            cache.delete(flag_key)
+                            cache.delete(topic_key)
+                            cache.delete(counter_key)
+                            yield from _stream_text("\n\n🛑 Live updates stopped. Ask me anything else! 📰")
+                            stopped = True
+                            break
+                        if not cache.get(flag_key):
+                            stopped = True
+                            break
+                        time.sleep(1)
+
+                    if stopped:
+                        break
+
+                    counter = cache.get(counter_key, 2)
+                    payload = real_time_news_cycle(refined_topic, counter)
+                    cache.set(counter_key, counter + 1, timeout=3600)
+
+                    for word in payload.replace('\n', '\\n').split(' '):
+                        if cache.get(signal_key) or not cache.get(flag_key):
+                            break
+                        yield f"data: {word} \n\n"
+                        time.sleep(0.02)
+
+                yield "data: [DONE]\n\n"
+                return
+
+            # ── REGULAR QUERY ─────────────────────────────────────────────────
             response = get_politics_response(query, thread_id=thread_id)
-            
-            words = response.split(" ")
-            for word in words:
-                escaped_chunk = word.replace('\n', '\\n')
-                yield f"data: {escaped_chunk} \n\n"
-                time.sleep(0.02)
-            
+            yield from _stream_text(response)
             yield "data: [DONE]\n\n"
-            
+
         except Exception as e:
-            print(f"Stream error: {str(e)}")
-            error_msg = f"[ERROR] {str(e)}"
-            words = error_msg.split(" ")
-            for word in words:
-                escaped_chunk = word.replace('\n', '\\n')
-                yield f"data: {escaped_chunk} \n\n"
-                time.sleep(0.02)
+            print(f"Politics stream error: {str(e)}")
+            yield from _stream_text(f"[ERROR] {str(e)}")
             yield "data: [DONE]\n\n"
-    
-    response = StreamingHttpResponse(
-        stream_response(),
-        content_type='text/event-stream'
-    )
-    response['Cache-Control'] = 'no-cache'
-    response['X-Accel-Buffering'] = 'no'
-    response['Access-Control-Allow-Origin'] = '*'
-    return response
+
+    resp = StreamingHttpResponse(stream_response(), content_type="text/event-stream")
+    resp["Cache-Control"]            = "no-cache"
+    resp["X-Accel-Buffering"]        = "no"
+    resp["Access-Control-Allow-Origin"] = "*"
+    return resp
+
 
 @csrf_exempt
 @require_POST

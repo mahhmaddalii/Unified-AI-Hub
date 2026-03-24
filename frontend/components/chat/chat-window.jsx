@@ -10,6 +10,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { toast } from 'react-toastify';
 import { useNotifications } from '../../utils/useNotifications';
+import rehypeRaw from 'rehype-raw';
 
 export default function ChatWindow({
   chatId,
@@ -379,7 +380,7 @@ export default function ChatWindow({
     if (!content) return null;
     return (
       <div className="prose prose-sm sm:prose-base prose-headings:text-gray-900 prose-a:no-underline max-w-none break-words leading-7">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={MarkdownComponents}>{content}</ReactMarkdown>
       </div>
     );
   }, []);
