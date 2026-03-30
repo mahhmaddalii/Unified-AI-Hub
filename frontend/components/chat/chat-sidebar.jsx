@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { createPortal } from 'react-dom';
 import SettingsPanel from './settings-panel';
 import { useState, useEffect, useRef } from "react";
-import { v4 as uuidv4 } from "uuid";
 import { useAgents } from "../agents/AgentContext";
 import { showToast } from '../../utils/toast'; 
 import {
@@ -210,15 +209,6 @@ export default function UnifiedSidebar({
   const addChat = () => {
     if (onNewChat) {
       onNewChat();
-    } else {
-      const newChat = {
-        id: uuidv4(),
-        name: `New Chat ${chats.length + 1}`,
-        lastActive: "Just now"
-      };
-
-      const updatedChats = [newChat, ...chats];
-      if (onChatsUpdate) onChatsUpdate(updatedChats);
     }
 
     if (isMobile) onToggle(false);

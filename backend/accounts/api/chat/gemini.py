@@ -6,6 +6,7 @@ from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 import os,re
 from dotenv import load_dotenv
+from threading import Lock
 from uuid import uuid4
 from .documents import load_vectorstore
 
@@ -277,13 +278,23 @@ def generate_chat_title(user_input: str) -> str:
 # -------------------- Chat History (per chat_id) --------------------
 
 chat_histories = {}
+chat_lock = Lock()
+
+
+def create_chat_session():
+    """Create and register a new backend-owned chat session."""
+    chat_id = str(uuid4())
+    with chat_lock:
+        chat_histories[chat_id] = InMemoryChatMessageHistory()
+    return chat_id
 
 def get_chat_history(chat_id=None):
     """Return chat history object for given chat_id. Create one if not exists."""
     if not chat_id:
-        chat_id = str(uuid4())
-    if chat_id not in chat_histories:
-        chat_histories[chat_id] = InMemoryChatMessageHistory()
+        chat_id = create_chat_session()
+    elif chat_id not in chat_histories:
+        with chat_lock:
+            chat_histories.setdefault(chat_id, InMemoryChatMessageHistory())
     return chat_id, chat_histories[chat_id]
 
 

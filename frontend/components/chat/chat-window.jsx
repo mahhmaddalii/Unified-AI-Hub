@@ -123,7 +123,7 @@ export default function ChatWindow({
   }, [onNewMessage]);
 
   useEffect(() => {
-    if (chatId && chatId.startsWith('agent-chat-') && selectedAgent) {
+    if (chatId && selectedAgent && !selectedAgent.isBuiltIn) {
       console.log("✅ Agent chat detected, forcing agent UI for:", selectedAgent.name);
     }
   }, [chatId, selectedAgent]);
@@ -497,60 +497,71 @@ export default function ChatWindow({
 }, [selectedAgent, selectedModel, onSetLoading, isStoppingUpdates, buildCricketUrl, buildPoliticsUrl]);
 
   const sendMessage = useCallback(async () => {
-    if (selectedAgent && !selectedAgent.isBuiltIn && selectedAgent.status !== 'active') {
-      toast.error(`Cannot send message: ${selectedAgent.name} is deactivated. Please activate it first.`);
-      return;
-    }
-
-    const hasText = input.trim().length > 0;
-    const hasFiles = attachedFiles.length > 0;
-    if (!hasText && !hasFiles) return;
-
-    const userMsgId = generateUniqueId();
-    const userMsg = {
-      id: userMsgId,
-      role: "user",
-      text: input.trim(),
-      files: attachedFiles.map(file => ({ name: file.name, size: file.size, type: getFileType(file.name) }))
-    };
-
-    currentAssistantIdRef.current = generateUniqueId();
-    setMessages(prev => [...prev, userMsg]);
-    const currentFiles = [...attachedFiles];
-
-    let currentChatId = latestChatIdRef.current;
-    const isFirstMessage = !currentChatId && (!selectedAgent || selectedAgent.isBuiltIn);
-
-    if (onNewMessage) {
-      const result = onNewMessage(userMsg);
-      if (result && result.chatId) {
-        latestChatIdRef.current = result.chatId;
-        currentChatId = result.chatId;
+    try {
+      if (selectedAgent && !selectedAgent.isBuiltIn && selectedAgent.status !== 'active') {
+        toast.error(`Cannot send message: ${selectedAgent.name} is deactivated. Please activate it first.`);
+        return;
       }
+
+      const hasText = input.trim().length > 0;
+      const hasFiles = attachedFiles.length > 0;
+      if (!hasText && !hasFiles) return;
+
+      const userMsgId = generateUniqueId();
+      const userMsg = {
+        id: userMsgId,
+        role: "user",
+        text: input.trim(),
+        files: attachedFiles.map(file => ({ name: file.name, size: file.size, type: getFileType(file.name) }))
+      };
+
+      currentAssistantIdRef.current = generateUniqueId();
+      setMessages(prev => [...prev, userMsg]);
+      const currentFiles = [...attachedFiles];
+
+      let currentChatId = latestChatIdRef.current;
+      const isFirstMessage = !currentChatId && (!selectedAgent || selectedAgent.isBuiltIn);
+
+      if (onNewMessage) {
+        const result = await onNewMessage(userMsg);
+        if (result && result.chatId) {
+          latestChatIdRef.current = result.chatId;
+          currentChatId = result.chatId;
+        }
+      }
+
+      if (!currentChatId) {
+        setStatusMsg("Unable to start chat right now.");
+        return;
+      }
+
+      setInput("");
+      setAttachedFiles([]);
+      setStatusMsg("");
+
+      if (currentFiles.length > 0) await uploadFilesIfAny(currentChatId);
+
+      const apiText = hasText ? input.trim() : "[User sent files]";
+
+      let url;
+      if (selectedAgent && !selectedAgent.isBuiltIn) {
+        url = `http://127.0.0.1:8000/api/custom_agents/stream/?chat_id=${encodeURIComponent(currentChatId)}&agent_id=${encodeURIComponent(selectedAgent.id)}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(selectedAgent.model || "gemini-flashlite")}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(selectedAgent.customPrompt || "")}&text=${encodeURIComponent(apiText)}`;
+      } else if (selectedAgent?.id === 'builtin-cricket') {
+        // FIX: Always pass thread_id = currentChatId so start and stop use same cache key
+        url = buildCricketUrl(apiText, currentChatId);
+      } else if (selectedAgent?.id === 'builtin-politics') {
+        url = buildPoliticsUrl(apiText, currentChatId);
+      } else {
+        url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(apiText)}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
+      }
+
+      if (onSetLoading) onSetLoading(true);
+      setTimeout(() => { makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url); }, 100);
+    } catch (error) {
+      console.error("Failed to start chat:", error);
+      setStatusMsg("Unable to start chat right now.");
+      onSetLoading?.(false);
     }
-
-    setInput("");
-    setAttachedFiles([]);
-    setStatusMsg("");
-
-    if (currentFiles.length > 0) await uploadFilesIfAny(currentChatId);
-
-    const apiText = hasText ? input.trim() : "[User sent files]";
-
-    let url;
-    if (selectedAgent && !selectedAgent.isBuiltIn) {
-      url = `http://127.0.0.1:8000/api/custom_agents/stream/?agent_id=${encodeURIComponent(selectedAgent.id)}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(selectedAgent.model || "gemini-flashlite")}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(selectedAgent.customPrompt || "")}&text=${encodeURIComponent(apiText)}`;
-    } else if (selectedAgent?.id === 'builtin-cricket') {
-      // FIX: Always pass thread_id = currentChatId so start and stop use same cache key
-      url = buildCricketUrl(apiText, currentChatId);
-    } else if (selectedAgent?.id === 'builtin-politics') {
-      url = buildPoliticsUrl(apiText, currentChatId);
-    } else {
-      url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(apiText)}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
-    }
-
-    if (onSetLoading) onSetLoading(true);
-    setTimeout(() => { makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url); }, 100);
   }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent, buildCricketUrl, buildPoliticsUrl]);
 
   const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
