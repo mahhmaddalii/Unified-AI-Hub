@@ -35,6 +35,9 @@ importers:
       react-toastify:
         specifier: ^11.0.5
         version: 11.0.5(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      rehype-raw:
+        specifier: ^7.0.0
+        version: 7.0.0
     devDependencies:
       '@next/bundle-analyzer':
         specifier: ^16.1.2

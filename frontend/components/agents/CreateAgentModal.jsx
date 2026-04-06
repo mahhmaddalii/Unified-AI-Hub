@@ -124,10 +124,9 @@ export default function CreateAgentModal({
 }) {
   // CRITICAL FIX: More robust edit mode detection
  const isEditMode = Boolean(
-  editingAgent && 
-  editingAgent.id && 
-  editingAgent.name && 
-  editingAgent.id.startsWith('agent-')
+  editingAgent &&
+  editingAgent.name &&
+  !editingAgent.isBuiltIn
 );
 
 // ADD THIS SAFEGUARD - If modal just opened and editingAgent exists, 

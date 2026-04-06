@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { v4 as uuidv4 } from "uuid";
 import ChatSidebar from "../../components/chat/chat-sidebar";
 import ChatWindow from "../../components/chat/chat-window";
 import Navbar from "../../components/chat/chat-navbar";
@@ -9,6 +8,8 @@ import AgentDashboard from "../../components/agents/adashboard";
 import { AgentProvider, useAgents } from "../../components/agents/AgentContext";
 import { ToastContainer } from 'react-toastify';
 import { toastContainerProps, toastStyles, showToast } from '../../utils/toast';
+
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 // Inner component that uses AgentContext
 function ChatPageContent() {
@@ -18,6 +19,7 @@ function ChatPageContent() {
     setSelectedAgent: contextSetSelectedAgent,
     setEditingAgent: contextSetEditingAgent,
     setIsCreatingAgent: contextSetIsCreatingAgent,
+    ensureCustomAgentUsesBackendId,
     allAgents  // ← ADD THIS LINE
   } = useAgents();
 
@@ -33,6 +35,8 @@ function ChatPageContent() {
 
   const latestActiveChatId = useRef(null);
   const pendingAIMessages = useRef(new Map());
+  const agentChatIdsRef = useRef(new Map());
+  const pendingAgentSelectionRef = useRef(null);
 
   useEffect(() => {
     // Inject custom toast styles
@@ -62,6 +66,15 @@ function ChatPageContent() {
   useEffect(() => {
     if (activeChatId) {
       const activeChat = chats.find(chat => chat.id === activeChatId);
+
+      if (pendingAgentSelectionRef.current) {
+        if (activeChat?.agentId === pendingAgentSelectionRef.current) {
+          pendingAgentSelectionRef.current = null;
+        } else {
+          return;
+        }
+      }
+
       if (activeChat?.agentId) {
         const agent = allAgents.find(a => a.id === activeChat.agentId);
         // Only set if it's a different agent or not set at all
@@ -156,43 +169,107 @@ function ChatPageContent() {
   // ────────────────────────────────────────────────
   // NEW: Stable chat for agents
   // ────────────────────────────────────────────────
-  const getOrCreateAgentChat = useCallback((agent) => {
+  const createBackendChat = useCallback(async () => {
+    const response = await fetch(`${API_BASE_URL}/api/chat/create/`, {
+      method: "POST",
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create chat: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.chat_id;
+  }, []);
+
+  const fetchOrCreateAgentChatId = useCallback(async (agentId) => {
+    const cachedChatId = agentChatIdsRef.current.get(agentId);
+    if (cachedChatId) {
+      return { chatId: cachedChatId, isNew: false };
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/custom_agents/get-or-create-chat/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: "include",
+      body: JSON.stringify({ agent_id: agentId })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create custom agent chat: ${response.status}`);
+    }
+
+    const data = await response.json();
+    agentChatIdsRef.current.set(agentId, data.chat_id);
+    return {
+      chatId: data.chat_id,
+      isNew: data.is_new
+    };
+  }, []);
+
+  const getOrCreateAgentChat = useCallback(async (agent) => {
     if (!agent) return null;
 
-    // 🟢 NEW: Check if agent is active (skip check for built-in agents)
     if (!agent.isBuiltIn && agent.status !== 'active') {
-      // Agent is deactivated - show warning and don't create/return chat
       showToast.warning(`${agent.name} is deactivated. Please activate it first.`);
       return null;
     }
 
     const existingChat = chats.find(chat => chat.agentId === agent.id);
     if (existingChat) {
+      agentChatIdsRef.current.set(agent.id, existingChat.id);
       return existingChat;
     }
 
-    // Stable deterministic ID
-    const stableChatId = `agent-chat-${agent.id}`;
+    let chatId;
+    let isNew = false;
+
+    if (agent.isBuiltIn) {
+      chatId = agentChatIdsRef.current.get(agent.id);
+      if (!chatId) {
+        chatId = await createBackendChat();
+        agentChatIdsRef.current.set(agent.id, chatId);
+        isNew = true;
+      }
+    } else {
+      const result = await fetchOrCreateAgentChatId(agent.id);
+      chatId = result.chatId;
+      isNew = result.isNew;
+    }
 
     const newChat = {
-      id: stableChatId,
+      id: chatId,
       name: `Chat with ${agent.name}`,
       lastActive: "Just now",
       agentId: agent.id
     };
 
-    setChats(prev => [newChat, ...prev]);
-    setChatMessages(prev => ({
-      ...prev,
-      [stableChatId]: []
-    }));
+    setChats(prev => (
+      prev.some(chat => chat.id === chatId)
+        ? prev
+        : [newChat, ...prev]
+    ));
+    setChatMessages(prev => (
+      prev[chatId]
+        ? prev
+        : {
+            ...prev,
+            [chatId]: []
+          }
+    ));
 
-    showToast.success(`Started new chat with ${agent.name}`); // 🟢 ADD success toast
+    if (isNew) {
+      showToast.success(`Started new chat with ${agent.name}`);
+    }
+
     return newChat;
-  }, [chats]); // No need to add dependencies - agent.status comes from parameter
+  }, [chats, createBackendChat, fetchOrCreateAgentChatId]);
 
-  const createNewChat = useCallback((firstMessage, agentId = null) => {
-    const newChatId = uuidv4();
+  const createNewChat = useCallback(async (firstMessage, agentId = null) => {
+    const newChatId = await createBackendChat();
     const agent = agentId ? contextSelectedAgent : null;
     const chatName = agent
       ? `Chat with ${agent.name}`
@@ -217,9 +294,10 @@ function ChatPageContent() {
     }));
 
     return newChatId;
-  }, [contextSelectedAgent]);
+  }, [contextSelectedAgent, createBackendChat]);
 
   const handleSelectChat = useCallback((chatId) => {
+    pendingAgentSelectionRef.current = null;
     const selectedChat = chats.find(chat => chat.id === chatId);
 
     // Handle agent selection based on chat type
@@ -237,6 +315,7 @@ function ChatPageContent() {
 
         // Agent is active - select it
         contextSetSelectedAgent(agent);
+        agentChatIdsRef.current.set(agent.id, chatId);
 
       }
     } else {
@@ -273,22 +352,72 @@ function ChatPageContent() {
 
   // ========== AGENT EVENT HANDLERS ==========
 
-  const handleAgentSelect = useCallback((agent) => {
-    // Use context setter
-    contextSetSelectedAgent(agent);
+  const handleAgentSelect = useCallback(async (agent) => {
+    try {
+      pendingAgentSelectionRef.current = agent?.id || null;
+      let resolvedAgent = agent;
 
-    if (isMobile) {
-      setShowAgentDashboard(true);
-      return;
-    }
+      if (agent && !agent.isBuiltIn) {
+        const migratedAgent = await ensureCustomAgentUsesBackendId(agent);
+        if (migratedAgent) {
+          resolvedAgent = migratedAgent;
+          pendingAgentSelectionRef.current = migratedAgent.id;
+          setChats((prev) => prev.map((chat) => (
+            chat.agentId === agent.id
+              ? {
+                  ...chat,
+                  agentId: migratedAgent.id
+                }
+              : chat
+          )));
 
-    // FIXED: Use stable chat for both built-in and custom agents
-    const agentChat = getOrCreateAgentChat(agent);
-    if (agentChat) {
-      handleSelectChat(agentChat.id);
-      setShowAgentDashboard(false);
+          if (agentChatIdsRef.current.has(agent.id)) {
+            const existingChatId = agentChatIdsRef.current.get(agent.id);
+            agentChatIdsRef.current.delete(agent.id);
+            agentChatIdsRef.current.set(migratedAgent.id, existingChatId);
+          }
+        }
+      }
+
+      // Use context setter
+      contextSetSelectedAgent(resolvedAgent);
+
+      if (isMobile) {
+        setShowAgentDashboard(true);
+        return;
+      }
+
+      const agentChat = await getOrCreateAgentChat(resolvedAgent);
+      if (agentChat) {
+        pendingAgentSelectionRef.current = agentChat.agentId || resolvedAgent.id;
+        setActiveChatId(agentChat.id);
+        latestActiveChatId.current = agentChat.id;
+        setHasPrompt((chatMessages[agentChat.id] || []).length > 0);
+        setShowAgentDashboard(false);
+
+        if (pendingAIMessages.current.size > 0) {
+          setChatMessages(prev => {
+            const currentMessages = prev[agentChat.id] || [];
+            const pendingMessages = Array.from(pendingAIMessages.current.values());
+
+            const newMessages = pendingMessages.filter(pendingMsg =>
+              !currentMessages.some(existingMsg => existingMsg.id === pendingMsg.id)
+            );
+
+            pendingAIMessages.current.clear();
+            return {
+              ...prev,
+              [agentChat.id]: [...currentMessages, ...newMessages]
+            };
+          });
+        }
+      }
+    } catch (error) {
+      pendingAgentSelectionRef.current = null;
+      console.error("Failed to open agent chat:", error);
+      showToast.error(`Unable to open chat for ${agent.name}.`);
     }
-  }, [isMobile, getOrCreateAgentChat, handleSelectChat, contextSetSelectedAgent]);
+  }, [isMobile, getOrCreateAgentChat, contextSetSelectedAgent, chatMessages, ensureCustomAgentUsesBackendId]);
 
   const handleAgentCreated = useCallback((newAgent) => {
     console.log("Agent created in parent:", newAgent);
@@ -345,6 +474,7 @@ function ChatPageContent() {
   const prepareNewChat = useCallback(() => {
     console.log("💬 PAGE: Preparing new chat");
 
+    pendingAgentSelectionRef.current = null;
     setActiveChatId(null);
     latestActiveChatId.current = null;
     setHasPrompt(false);
@@ -357,7 +487,7 @@ function ChatPageContent() {
     setIsSidebarOpen(open);
   }, []);
 
-  const handleNewMessage = useCallback((message) => {
+  const handleNewMessage = useCallback(async (message) => {
     const targetChatId = message.chatId || latestActiveChatId.current;
 
     // 🟢 NEW: Get the current chat and check if it belongs to a deactivated agent
@@ -388,7 +518,7 @@ function ChatPageContent() {
           return { chatId: null, setLoading: false };
         }
 
-        const agentChat = getOrCreateAgentChat(contextSelectedAgent);
+        const agentChat = await getOrCreateAgentChat(contextSelectedAgent);
 
         // 🟢 NEW: If getOrCreateAgentChat returns null (agent inactive), stop
         if (!agentChat) {
@@ -415,7 +545,7 @@ function ChatPageContent() {
       // ─── Normal chat mode ───
       else {
         if (!targetChatId) {
-          const newChatId = createNewChat(message);
+          const newChatId = await createNewChat(message);
           latestActiveChatId.current = newChatId;
           setChatLoading(newChatId, true);
           return { chatId: newChatId, setLoading: true };
@@ -472,7 +602,7 @@ function ChatPageContent() {
     contextSelectedAgent,
     chats,
     getOrCreateAgentChat,
-    allAgents  // 🟢 NEW: Add allAgents to dependencies
+    allAgents
   ]);
 
   const updateChats = useCallback((newChats) => {
@@ -563,7 +693,7 @@ function ChatPageContent() {
                       isLoading={activeChatId ? isChatLoading(activeChatId) : false}
                       onSetLoading={(loading) => activeChatId && setChatLoading(activeChatId, loading)}
                       selectedAgent={contextSelectedAgent}
-                      key={activeChatId}
+                      // key={activeChatId}
                     />
                   </div>
                 )}

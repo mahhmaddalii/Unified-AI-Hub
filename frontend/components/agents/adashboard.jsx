@@ -141,13 +141,13 @@ export default function AgentDashboard({
     });
   };
 
-  const handleAgentSubmit = (firstParam, secondParam) => {
+  const handleAgentSubmit = async (firstParam, secondParam) => {
     console.log("handleAgentSubmit called with:", { firstParam, secondParam });
     
     let agentId, agentData;
     
     // Determine which parameter is which
-    if (typeof firstParam === 'string' && firstParam.startsWith('agent-')) {
+    if (typeof firstParam === 'string' && secondParam) {
       // firstParam is agentId, secondParam is agentData
       agentId = firstParam;
       agentData = secondParam;
@@ -163,16 +163,16 @@ export default function AgentDashboard({
     if (agentId && agentData && editingAgent) {
       console.log("Updating agent:", agentId);
       // Update in context
-      contextUpdateAgent(agentId, agentData);
+      const updatedAgent = await contextUpdateAgent(agentId, agentData);
       
       // Notify parent
       if (onUpdateAgent && typeof onUpdateAgent === 'function') {
-        onUpdateAgent(agentId, agentData);
+        onUpdateAgent(agentId, updatedAgent || agentData);
       }
     } else if (agentData && !editingAgent) {
       console.log("Creating new agent (no editingAgent)");
       // Create in context
-      const newAgent = contextCreateAgent(agentData);
+      const newAgent = await contextCreateAgent(agentData);
       
       // Notify parent
       if (onCreateAgent && typeof onCreateAgent === 'function') {

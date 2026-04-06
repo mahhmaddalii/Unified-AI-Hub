@@ -11,12 +11,11 @@ def image_generator(prompt: str, aspect_ratio: str = "1:1"):
     Returns a tuple: (text_response, image_url)
     """
     try:
-        print("=== Generating Gemini 2.5 Image ===")
-
+        
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "HTTP-Referer": "http://localhost:3000",  # required by OpenRouter
+            "HTTP-Referer": "http://localhost:3000",  
             "X-Title": "Unified AI Hub",
             "Content-Type": "application/json",
         }
