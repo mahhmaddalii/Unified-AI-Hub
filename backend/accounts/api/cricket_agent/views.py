@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 
+from accounts.api.domain_agent_sessions import get_or_create_domain_thread_id
 from .agent import get_cricket_response, reset_cricket_chat
 from .tools import livescore6_specific_match
 
@@ -49,12 +50,16 @@ def format_initial_update(full_update):
 @require_GET
 def cricket_stream(request):
     query = request.GET.get("text", "").strip()
-    thread_id = request.GET.get("thread_id", "cricket_agent_chat")
+    chat_id = request.GET.get("chat_id", "").strip()
+    thread_id = get_or_create_domain_thread_id(
+        "cricket",
+        chat_id=chat_id or None
+    )
 
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
     
-    print(f"🏏 Request: {query[:50]}... (thread: {thread_id})")
+    print(f"🏏 Request: {query[:50]}... (chat: {chat_id or 'none'}, thread: {thread_id})")
     
     def stream_response():
         try:

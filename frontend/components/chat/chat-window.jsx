@@ -70,18 +70,18 @@ export default function ChatWindow({
   const currentAssistantIdRef = useRef(null);
 
   // ─────────────────────────────────────────────────────────────
-  // KEY FIX: Always pass thread_id (= chatId) so backend uses the
-  // same cache key for both starting and stopping live updates.
+  // Built-in domain agents now send chat_id only.
+  // Backend resolves and owns the actual thread/session identifier.
   // ─────────────────────────────────────────────────────────────
-  const buildCricketUrl = useCallback((text, chatIdForThread) => {
-    const tid = encodeURIComponent(chatIdForThread || 'cricket_agent_chat');
-    return `http://127.0.0.1:8000/api/cricket_agent/stream/?text=${encodeURIComponent(text)}&thread_id=${tid}`;
+  const buildCricketUrl = useCallback((text, chatIdForRequest) => {
+    const encodedChatId = encodeURIComponent(chatIdForRequest || '');
+    return `http://127.0.0.1:8000/api/cricket_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
   }, []);
 
-  const buildPoliticsUrl = useCallback((text, chatIdForThread) => {
-  const tid = encodeURIComponent(chatIdForThread || 'politics_agent_chat');
-  return `http://127.0.0.1:8000/api/politics_agent/stream/?text=${encodeURIComponent(text)}&thread_id=${tid}`;
-}, []);
+  const buildPoliticsUrl = useCallback((text, chatIdForRequest) => {
+    const encodedChatId = encodeURIComponent(chatIdForRequest || '');
+    return `http://127.0.0.1:8000/api/politics_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
+  }, []);
 
   // Send stop signal to backend — fire and forget
   const sendStopSignalToBackend = useCallback((chatIdToStop, chatState) => {
@@ -89,9 +89,10 @@ export default function ChatWindow({
 
     console.log("🛑 Sending stop signal to backend for chat:", chatIdToStop);
 
-    // FIX: Use the stored thread_id that was used when live updates started
-    const threadId = chatState.liveUpdateThreadId || chatIdToStop;
-    const url = `http://127.0.0.1:8000/api/cricket_agent/stream/?text=stop&thread_id=${encodeURIComponent(threadId)}`;
+    const activeAgentId = chatState.liveUpdateAgent?.id;
+    const url = activeAgentId === 'builtin-politics'
+      ? buildPoliticsUrl('stop', chatIdToStop)
+      : buildCricketUrl('stop', chatIdToStop);
 
     const es = new EventSource(url);
     es.onmessage = (event) => {
@@ -101,7 +102,7 @@ export default function ChatWindow({
     };
     es.onerror = () => es.close();
     setTimeout(() => es.close(), 5000);
-  }, []);
+  }, [buildCricketUrl, buildPoliticsUrl]);
 
   // Flush in-progress assistant message to parent before switching away
   const flushChatStateToParent = useCallback((chatIdToFlush) => {
@@ -442,15 +443,15 @@ export default function ChatWindow({
   const currentChatId = latestChatIdRef.current;
   const currentState = chatStatesRef.current.get(currentChatId);
 
-  const threadId = currentState?.liveUpdateThreadId || currentChatId || 'default_chat';
+  const liveUpdateChatId = currentState?.liveUpdateThreadId || currentChatId || '';
 
   let url;
 
   if (selectedAgent?.id === 'builtin-cricket') {
-    url = buildCricketUrl('stop', threadId);
+    url = buildCricketUrl('stop', liveUpdateChatId);
   } 
   else if (selectedAgent?.id === 'builtin-politics') {
-    url = buildPoliticsUrl('stop', threadId);
+    url = buildPoliticsUrl('stop', liveUpdateChatId);
   } 
   else {
     url = `http://127.0.0.1:8000/api/chat/stream/?text=stop&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}`;
@@ -547,7 +548,6 @@ export default function ChatWindow({
       if (selectedAgent && !selectedAgent.isBuiltIn) {
         url = `http://127.0.0.1:8000/api/custom_agents/stream/?chat_id=${encodeURIComponent(currentChatId)}&agent_id=${encodeURIComponent(selectedAgent.id)}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(selectedAgent.model || "gemini-flashlite")}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(selectedAgent.customPrompt || "")}&text=${encodeURIComponent(apiText)}`;
       } else if (selectedAgent?.id === 'builtin-cricket') {
-        // FIX: Always pass thread_id = currentChatId so start and stop use same cache key
         url = buildCricketUrl(apiText, currentChatId);
       } else if (selectedAgent?.id === 'builtin-politics') {
         url = buildPoliticsUrl(apiText, currentChatId);
@@ -577,9 +577,8 @@ export default function ChatWindow({
     const es = new EventSource(url);
     activeStreamsRef.current.set(targetChatId, es);
 
-    // FIX: Store the thread_id used for this stream so stop uses the same key
-    const threadIdMatch = url.match(/thread_id=([^&]+)/);
-    const usedThreadId = threadIdMatch ? decodeURIComponent(threadIdMatch[1]) : targetChatId;
+    const chatIdMatch = url.match(/chat_id=([^&]*)/);
+    const usedChatId = chatIdMatch ? decodeURIComponent(chatIdMatch[1]) : targetChatId;
 
     chatStatesRef.current.set(targetChatId, {
       receivedFirstMessage: false,
@@ -593,7 +592,7 @@ export default function ChatWindow({
       hasLiveUpdates: false,
       liveUpdateAgent: null,
       liveUpdateModel: null,
-      liveUpdateThreadId: usedThreadId,  // FIX: store for stop signal
+      liveUpdateThreadId: usedChatId,
       detectedStart: false,
       detectedStop: false,
       lastNotifBlockText: null,

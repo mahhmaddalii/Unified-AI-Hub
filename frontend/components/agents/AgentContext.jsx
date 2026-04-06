@@ -1,6 +1,9 @@
 "use client";
 
+
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+const API_BASE_URL = "http://127.0.0.1:8000";
+const BACKEND_CUSTOM_AGENT_ID_PATTERN = /^agent-\d{13}-[a-z0-9]{9}$/;
 
 // Default built-in agents (unchanged)
 const BUILT_IN_AGENTS = [
@@ -91,6 +94,10 @@ export const useAgents = () => {
   return context;
 };
 
+const isBackendCustomAgentId = (agentId) => {
+  return typeof agentId === "string" && BACKEND_CUSTOM_AGENT_ID_PATTERN.test(agentId);
+};
+
 // Helper function to clean agent data
 const cleanAgentData = (agent) => {
   if (!agent || typeof agent !== 'object') {
@@ -102,7 +109,7 @@ const cleanAgentData = (agent) => {
   
   // Ensure it has all required properties
   return {
-    id: cleaned.id || `agent-${Date.now()}`,
+    id: typeof cleaned.id === "string" ? cleaned.id : "",
     name: cleaned.name || "Unnamed Agent",
     purpose: cleaned.purpose || "general",
     model: cleaned.model || "gemini-flashlite",
@@ -176,14 +183,82 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
     return [...agents.builtIn, ...agents.custom];
   }, [agents.builtIn, agents.custom]);
 
+  const createBackendAgentId = useCallback(async () => {
+    const response = await fetch(`${API_BASE_URL}/api/custom_agents/create-id/`, {
+      method: "POST",
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create agent id: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.agent_id;
+  }, []);
+
+  const ensureCustomAgentUsesBackendId = useCallback(async (agentOrId) => {
+    const agentId = typeof agentOrId === "string" ? agentOrId : agentOrId?.id;
+    if (!agentId) {
+      return null;
+    }
+
+    const currentAgent = agents.custom.find((agent) => agent.id === agentId);
+    if (!currentAgent) {
+      return null;
+    }
+
+    if (currentAgent.isBuiltIn || isBackendCustomAgentId(currentAgent.id)) {
+      return currentAgent;
+    }
+
+    const backendAgentId = await createBackendAgentId();
+    const migrationTimestamp = new Date().toISOString();
+    const migratedAgent = {
+      ...currentAgent,
+      id: backendAgentId,
+      updatedAt: migrationTimestamp
+    };
+
+    setAgents((prev) => {
+      const nextCustomAgents = prev.custom.map((agent) => (
+        agent.id === agentId ? migratedAgent : agent
+      ));
+
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("customAgents", JSON.stringify(nextCustomAgents));
+        } catch (error) {
+          console.error("Error saving migrated agent to localStorage:", error);
+        }
+      }
+
+      return {
+        ...prev,
+        custom: nextCustomAgents
+      };
+    });
+
+    setSelectedAgent((prev) => (
+      prev?.id === agentId ? migratedAgent : prev
+    ));
+    setEditingAgent((prev) => (
+      prev?.id === agentId ? migratedAgent : prev
+    ));
+
+    return migratedAgent;
+  }, [agents.custom, createBackendAgentId]);
+
   // Create a new custom agent
-  const createAgent = useCallback((agentData) => {
+  const createAgent = useCallback(async (agentData) => {
     const cleanedAgentData = cleanAgentData(agentData);
     if (!cleanedAgentData) return null;
 
+    const backendAgentId = await createBackendAgentId();
+
     const newAgent = {
       ...cleanedAgentData,
-      id: `agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: backendAgentId,
       status: "active",
       createdAt: new Date().toISOString(),
       isBuiltIn: false
@@ -200,7 +275,7 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
     setSelectedAgent(newAgent);
 
     return newAgent;
-  }, []);
+  }, [createBackendAgentId]);
 
   // Update an existing agent - FIXED: Ensure proper update
   const updateAgent = useCallback((agentId, updates) => {
@@ -352,6 +427,7 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
     updateAgent,
     deleteAgent,
     toggleAgentStatus,
+    ensureCustomAgentUsesBackendId,
     getAgentById,
     getAgentsByType,
     resetToDefault,
@@ -372,6 +448,7 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
     updateAgent,
     deleteAgent,
     toggleAgentStatus,
+    ensureCustomAgentUsesBackendId,
     getAgentById,
     getAgentsByType,
     resetToDefault

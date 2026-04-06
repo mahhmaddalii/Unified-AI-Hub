@@ -19,6 +19,7 @@ function ChatPageContent() {
     setSelectedAgent: contextSetSelectedAgent,
     setEditingAgent: contextSetEditingAgent,
     setIsCreatingAgent: contextSetIsCreatingAgent,
+    ensureCustomAgentUsesBackendId,
     allAgents  // ← ADD THIS LINE
   } = useAgents();
 
@@ -35,6 +36,7 @@ function ChatPageContent() {
   const latestActiveChatId = useRef(null);
   const pendingAIMessages = useRef(new Map());
   const agentChatIdsRef = useRef(new Map());
+  const pendingAgentSelectionRef = useRef(null);
 
   useEffect(() => {
     // Inject custom toast styles
@@ -64,6 +66,15 @@ function ChatPageContent() {
   useEffect(() => {
     if (activeChatId) {
       const activeChat = chats.find(chat => chat.id === activeChatId);
+
+      if (pendingAgentSelectionRef.current) {
+        if (activeChat?.agentId === pendingAgentSelectionRef.current) {
+          pendingAgentSelectionRef.current = null;
+        } else {
+          return;
+        }
+      }
+
       if (activeChat?.agentId) {
         const agent = allAgents.find(a => a.id === activeChat.agentId);
         // Only set if it's a different agent or not set at all
@@ -286,6 +297,7 @@ function ChatPageContent() {
   }, [contextSelectedAgent, createBackendChat]);
 
   const handleSelectChat = useCallback((chatId) => {
+    pendingAgentSelectionRef.current = null;
     const selectedChat = chats.find(chat => chat.id === chatId);
 
     // Handle agent selection based on chat type
@@ -342,16 +354,42 @@ function ChatPageContent() {
 
   const handleAgentSelect = useCallback(async (agent) => {
     try {
+      pendingAgentSelectionRef.current = agent?.id || null;
+      let resolvedAgent = agent;
+
+      if (agent && !agent.isBuiltIn) {
+        const migratedAgent = await ensureCustomAgentUsesBackendId(agent);
+        if (migratedAgent) {
+          resolvedAgent = migratedAgent;
+          pendingAgentSelectionRef.current = migratedAgent.id;
+          setChats((prev) => prev.map((chat) => (
+            chat.agentId === agent.id
+              ? {
+                  ...chat,
+                  agentId: migratedAgent.id
+                }
+              : chat
+          )));
+
+          if (agentChatIdsRef.current.has(agent.id)) {
+            const existingChatId = agentChatIdsRef.current.get(agent.id);
+            agentChatIdsRef.current.delete(agent.id);
+            agentChatIdsRef.current.set(migratedAgent.id, existingChatId);
+          }
+        }
+      }
+
       // Use context setter
-      contextSetSelectedAgent(agent);
+      contextSetSelectedAgent(resolvedAgent);
 
       if (isMobile) {
         setShowAgentDashboard(true);
         return;
       }
 
-      const agentChat = await getOrCreateAgentChat(agent);
+      const agentChat = await getOrCreateAgentChat(resolvedAgent);
       if (agentChat) {
+        pendingAgentSelectionRef.current = agentChat.agentId || resolvedAgent.id;
         setActiveChatId(agentChat.id);
         latestActiveChatId.current = agentChat.id;
         setHasPrompt((chatMessages[agentChat.id] || []).length > 0);
@@ -375,10 +413,11 @@ function ChatPageContent() {
         }
       }
     } catch (error) {
+      pendingAgentSelectionRef.current = null;
       console.error("Failed to open agent chat:", error);
       showToast.error(`Unable to open chat for ${agent.name}.`);
     }
-  }, [isMobile, getOrCreateAgentChat, contextSetSelectedAgent, chatMessages]);
+  }, [isMobile, getOrCreateAgentChat, contextSetSelectedAgent, chatMessages, ensureCustomAgentUsesBackendId]);
 
   const handleAgentCreated = useCallback((newAgent) => {
     console.log("Agent created in parent:", newAgent);
@@ -435,6 +474,7 @@ function ChatPageContent() {
   const prepareNewChat = useCallback(() => {
     console.log("💬 PAGE: Preparing new chat");
 
+    pendingAgentSelectionRef.current = null;
     setActiveChatId(null);
     latestActiveChatId.current = null;
     setHasPrompt(false);

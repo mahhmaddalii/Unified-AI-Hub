@@ -6,6 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 
+from accounts.api.domain_agent_sessions import get_or_create_domain_thread_id
 from .agent import get_politics_response, reset_politics_chat
 from .tools import (
     real_time_news_search,
@@ -33,13 +34,17 @@ def _stream_text(text: str):
 @csrf_exempt
 @require_GET
 def politics_stream(request):
-    query     = request.GET.get("text", "").strip()
-    thread_id = request.GET.get("thread_id", "politics_agent_chat")
+    query = request.GET.get("text", "").strip()
+    chat_id = request.GET.get("chat_id", "").strip()
+    thread_id = get_or_create_domain_thread_id(
+        "politics",
+        chat_id=chat_id or None
+    )
 
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
 
-    print(f"📰 Politics request: {query[:60]}… (thread: {thread_id})")
+    print(f"📰 Politics request: {query[:60]}… (chat: {chat_id or 'none'}, thread: {thread_id})")
 
     def stream_response():
         try:

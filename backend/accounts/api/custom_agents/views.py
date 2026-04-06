@@ -1,9 +1,9 @@
-# backend/agents/api/custom_agents/views.py
-import re
 import json
+import secrets
+import string
+import time
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from accounts.api.chat.documents import load_vectorstore
 from accounts.api.chat.gemini import chat_histories
 from .custom_agent_chat import (
     agent_chat_map,
@@ -11,6 +11,19 @@ from .custom_agent_chat import (
     get_custom_agent_response,
     get_or_create_custom_agent_chat,
 )
+
+
+def _generate_custom_agent_id():
+    random_part = ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(9))
+    return f"agent-{int(time.time() * 1000)}-{random_part}"
+
+
+@csrf_exempt
+def create_custom_agent_id_view(request):
+    if request.method != 'POST':
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    return JsonResponse({"agent_id": _generate_custom_agent_id()})
 
 
 @csrf_exempt
