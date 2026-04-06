@@ -1,13 +1,15 @@
 import os
 import re
+from uuid import uuid4
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langchain_tavily import TavilySearch
-from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 from accounts.api.chat.documents import load_vectorstore
+from accounts.api.chat.gemini import chat_histories, chat_lock
+from langchain_core.chat_history import InMemoryChatMessageHistory
 
 load_dotenv()
 
@@ -191,16 +193,32 @@ DOCUMENT RULES:
     for purpose, role_prompt in ROLE_PROMPTS.items()
 }
 
+agent_chat_map = {}
 
 
-custom_agent_histories = {}
+def get_or_create_custom_agent_chat(agent_id):
+    """Return the single backend-owned chat_id for a custom agent."""
+    existing_chat_id = agent_chat_map.get(agent_id)
+    if existing_chat_id:
+        return existing_chat_id, False
 
-def get_custom_agent_history(agent_id):
-    """Get chat history for this agent (only one chat per agent)"""
-    if agent_id not in custom_agent_histories:
-        custom_agent_histories[agent_id] = InMemoryChatMessageHistory()
-    
-    return custom_agent_histories[agent_id]
+    chat_id = str(uuid4())
+    with chat_lock:
+        existing_chat_id = agent_chat_map.get(agent_id)
+        if existing_chat_id:
+            return existing_chat_id, False
+
+        agent_chat_map[agent_id] = chat_id
+        chat_histories[chat_id] = InMemoryChatMessageHistory()
+
+    return chat_id, True
+
+
+def get_agent_id_from_chat_id(chat_id):
+    for agent_id, mapped_chat_id in agent_chat_map.items():
+        if mapped_chat_id == chat_id:
+            return agent_id
+    return None
 
 #Initialize Model
 def init_custom_agent_model(model_id):
@@ -266,9 +284,15 @@ document_search_tool = Tool.from_function(
 )
 
 
-def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is_auto_selected, custom_prompt=""):
+def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is_auto_selected, custom_prompt="", chat_id=None):
     try:
-        chat_history = get_custom_agent_history(agent_id)
+        if not chat_id:
+            raise ValueError("chat_id is required for custom agent chats")
+
+        chat_history = chat_histories.get(chat_id)
+        if chat_history is None:
+            raise ValueError("Invalid chat_id for custom agent chat")
+
         model_to_use = get_agent_model(model_selection, purpose, is_auto_selected)
         system_prompt = build_final_system_prompt(purpose, custom_prompt)
         model = init_custom_agent_model(model_to_use)
@@ -294,6 +318,7 @@ def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is
         chat_history.add_user_message(user_input)
         
         print(f"=== CUSTOM AGENT CHAT ===")
+        print(f"Chat ID: {chat_id}")
         print(f"Agent ID: {agent_id}")
         print(f"Model: {model_to_use}")
         print(f"Purpose: {purpose}")
@@ -318,5 +343,5 @@ def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is
         chat_history.add_ai_message(final_answer)
         
     except Exception as e:
-        print(f"[ERROR] Custom agent {agent_id} failed: {str(e)}")
+        print(f"[ERROR] Custom agent {agent_id} chat {chat_id} failed: {str(e)}")
         yield f"Error: {str(e)}"

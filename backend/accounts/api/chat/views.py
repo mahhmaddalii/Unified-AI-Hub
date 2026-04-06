@@ -1,4 +1,5 @@
 import os
+from uuid import uuid4
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
@@ -11,10 +12,12 @@ from langchain_cohere import CohereEmbeddings
 from .documents import CONNECTION_STRING, COLLECTION_NAME, load_vectorstore
 from .gemini import get_bot_response
 from .gemini import generate_chat_title
+from .gemini import chat_histories, chat_lock
 from .generate_image import image_generator
 from dotenv import load_dotenv
 import sys, re
 from django.utils.encoding import force_str
+from langchain_core.chat_history import InMemoryChatMessageHistory
 
 load_dotenv()
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
@@ -78,6 +81,18 @@ def _sse_chunk(text: str) -> str:
     else:
         # Send text as-is - frontend will handle formatting
         return f"data: {text}\n\n"
+
+
+@csrf_exempt
+def create_chat_view(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    chat_id = str(uuid4())
+    with chat_lock:
+        chat_histories[chat_id] = InMemoryChatMessageHistory()
+
+    return JsonResponse({"chat_id": chat_id})
 
 @csrf_exempt
 def chat_view(request):
