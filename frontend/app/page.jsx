@@ -4,6 +4,7 @@ import Image from "next/image";
 import Navbar from "../components/chat/chat-navbar";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { checkActiveSession } from "../utils/auth";
 
 export default function HomePage() {
   const [theme, setTheme] = useState('light');
@@ -16,6 +17,23 @@ export default function HomePage() {
     const savedTheme = localStorage.getItem('theme') || 'light';
     setTheme(savedTheme);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkSession = async () => {
+      const session = await checkActiveSession();
+      if (!cancelled && session.isAuthenticated) {
+        router.replace("/chat");
+      }
+    };
+
+    checkSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   useEffect(() => {
     if (!mounted) return;

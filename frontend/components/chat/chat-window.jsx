@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { SparklesIcon } from "@heroicons/react/24/outline";
 import Image from "next/image";
-import { Meta, OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
+import { OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -11,6 +11,7 @@ import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { toast } from 'react-toastify';
 import { useNotifications } from '../../utils/useNotifications';
 import rehypeRaw from 'rehype-raw';
+import { MODEL_OPTIONS, getDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
 
 export default function ChatWindow({
   chatId,
@@ -27,7 +28,7 @@ export default function ChatWindow({
   const [input, setInput] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("gemini-flashlite");
+  const [selectedModel, setSelectedModel] = useState(() => getDefaultModelId());
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [showModelDialog, setShowModelDialog] = useState(false);
   const [isAgentDeactivated, setIsAgentDeactivated] = useState(false);
@@ -56,9 +57,12 @@ export default function ChatWindow({
   };
 
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const modelDialogRef = useRef(null);
+  const chatModelMapRef = useRef(new Map());
+  const draftModelRef = useRef(null);
 
   // These refs survive re-renders but NOT remounts.
   // Since page.jsx uses key={activeChatId}, ChatWindow remounts on every switch.
@@ -68,6 +72,7 @@ export default function ChatWindow({
   const latestChatIdRef = useRef(chatId);
   const prevChatIdRef = useRef(chatId);
   const currentAssistantIdRef = useRef(null);
+  const draftManualRef = useRef(false);
 
   // ─────────────────────────────────────────────────────────────
   // Built-in domain agents now send chat_id only.
@@ -138,6 +143,39 @@ export default function ChatWindow({
       setStatusMsg("");
     }
   }, [selectedAgent]);
+
+  useEffect(() => {
+    if (selectedAgent) return;
+
+    if (!chatId) {
+      const defaultId = getDefaultModelId();
+      draftModelRef.current = defaultId;
+      draftManualRef.current = false;
+      setSelectedModel(defaultId);
+      return;
+    }
+
+    const existing = chatModelMapRef.current.get(chatId);
+    if (existing) {
+      setSelectedModel(existing);
+      return;
+    }
+
+    const initialModel = draftModelRef.current || getDefaultModelId();
+    chatModelMapRef.current.set(chatId, initialModel);
+    setSelectedModel(initialModel);
+  }, [chatId, selectedAgent]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeDefaultModel((modelId) => {
+      if (selectedAgent) return;
+      if (chatId) return;
+      if (draftManualRef.current) return;
+      draftModelRef.current = modelId;
+      setSelectedModel(modelId);
+    });
+    return unsubscribe;
+  }, [chatId, selectedAgent]);
 
   useEffect(() => {
     console.log("🤖 ChatWindow selectedAgent:", selectedAgent);
@@ -249,15 +287,7 @@ export default function ChatWindow({
     };
   }, []); // Empty deps — only runs on mount/unmount
 
-  const aiModels = [
-    { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={24} /> },
-    { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={24} /> },
-    { id: "gpt5-nano", name: "GPT-5 Nano", description: "Good for complex reasoning", icon: <OpenAI size={24} /> },
-    { id: "gemini-flashlite", name: "Gemini Pro", description: "Great for multimodal tasks", icon: <Gemini.Color size={24} /> },
-    { id: "gemini-2.5-flash-image", name: "Gemini 2.5 Flash", description: "Image generation & preview", icon: <Gemini.Color size={24} /> },
-    { id: "llama guard 4", name: "Llama 3", description: "Open-source alternative", icon: <Meta size={24} /> },
-    { id: "mistral nemo", name: "Mistral", description: "Efficient and fast", icon: <Mistral.Color size={24} /> },
-  ];
+  const aiModels = MODEL_OPTIONS;
 
   const promptCards = [
     { title: "Explain concepts", prompt: "Explain quantum computing in simple terms", icon: "🧠" },
@@ -386,7 +416,10 @@ export default function ChatWindow({
     );
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages.length, isLoading]);
+  useEffect(() => {
+    if (!hasActiveChat || messages.length === 0) return;
+    scrollToBottom();
+  }, [messages.length, isLoading, hasActiveChat]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -412,6 +445,11 @@ export default function ChatWindow({
   }, []);
 
   function scrollToBottom() {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }
 
@@ -827,15 +865,35 @@ export default function ChatWindow({
   const handleAttachClick = useCallback(() => { fileInputRef.current?.click(); }, []);
   const handleFileSelect = useCallback((e) => { const files = Array.from(e.target.files); if (files.length > 0) setAttachedFiles(prev => [...prev, ...files]); e.target.value = ''; }, []);
   const removeFile = useCallback((index) => { setAttachedFiles(prev => prev.filter((_, i) => i !== index)); }, []);
-  const handleModelSelect = useCallback((modelId) => { setSelectedModel(modelId); setShowModelDialog(false); }, []);
-  const getCurrentModel = useCallback(() => aiModels.find(model => model.id === selectedModel), [selectedModel]);
+  const handleModelSelect = useCallback((modelId) => {
+    setSelectedModel(modelId);
+
+    if (!selectedAgent) {
+      if (chatId) {
+        chatModelMapRef.current.set(chatId, modelId);
+      } else {
+        draftModelRef.current = modelId;
+        draftManualRef.current = true;
+      }
+    }
+
+    setShowModelDialog(false);
+  }, [chatId, selectedAgent]);
+  const getCurrentModel = useCallback(() => (
+    aiModels.find(model => model.id === selectedModel) ||
+    aiModels.find(model => model.id === getDefaultModelId()) ||
+    aiModels[0]
+  ), [selectedModel]);
 
 return (
     <div className="flex flex-col h-full w-full bg-white">
       {/* Messages Container */}
-      <div className={`flex-1 px-2 py-1 md:px-4 ${
+      <div
+        ref={messagesContainerRef}
+        className={`flex-1 px-2 py-1 md:px-4 ${
         messages.length > 0 ? "scrollbar-thin overflow-y-auto" : "overflow-hidden"
-      }`}>
+      }`}
+      >
         {showWelcomeScreen ? (
           // Welcome screen
           <div className="flex flex-col items-center justify-center h-full px-2">
@@ -934,12 +992,13 @@ return (
                                 <div className="min-w-0 flex-1">
                                   <div className="truncate text-xs font-medium">{file.name}</div>
                                   <div className="text-xs opacity-70">{file.type} • {formatFileSize(file.size)}</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </div>
                       {m.role === "user" && (
                         <svg className="absolute -right-3 bottom-1" width="26" height="35" viewBox="0 0 26 35">
                           <path d="M0 0 L0 15 Q2 24 12 30 Q18 33 26 35 L0 35 Z" className="fill-purple-600" />

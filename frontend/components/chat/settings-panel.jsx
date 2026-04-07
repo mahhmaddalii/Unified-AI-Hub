@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   XMarkIcon,
   Cog6ToothIcon,
@@ -15,12 +15,16 @@ import {
 } from "@heroicons/react/24/outline";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../auth/auth-context";
+import { DEFAULT_MODEL_ID, MODEL_OPTIONS, getDefaultModelId, setDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
 
 export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) => {
   const [activeSection, setActiveSection] = useState(initialSection);
   const [notifications, setNotifications] = useState(true);
   const [autoSave, setAutoSave] = useState(true);
   const [searchHistory, setSearchHistory] = useState(true);
+  const [defaultModelId, setDefaultModelIdState] = useState(() => getDefaultModelId());
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef(null);
   const { user, loading: userLoading } = useAuth();
   
   const router = useRouter();
@@ -29,6 +33,30 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
   useEffect(() => {
     setActiveSection(initialSection);
   }, [initialSection, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setModelMenuOpen(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeDefaultModel((modelId) => {
+      setDefaultModelIdState(modelId);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const handleClickOutside = (event) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(event.target)) {
+        setModelMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [modelMenuOpen]);
 
   if (!isOpen) return null;
 
@@ -47,6 +75,9 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
   const displayEmail = user?.email || "";
   const avatarUrl = user?.avatarUrl || null;
   const initials = getInitials(displayName, displayEmail);
+  const selectedModel = MODEL_OPTIONS.find((model) => model.id === defaultModelId) ||
+    MODEL_OPTIONS.find((model) => model.id === DEFAULT_MODEL_ID) ||
+    MODEL_OPTIONS[0];
 
   const sections = [
     { id: "general", icon: Cog6ToothIcon, title: "General" },
@@ -76,7 +107,7 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
       />
       
       {/* Settings Panel */}
-      <div className="fixed right-0 top-4 bottom-4 w-80 bg-white rounded-2xl shadow-lg border border-gray-200 z-50 animate-in slide-in-from-right duration-200 overflow-hidden mr-4">
+      <div className="fixed right-0 top-4 bottom-4 w-80 bg-white rounded-2xl shadow-lg border border-gray-200 z-50 animate-in slide-in-from-right duration-200 overflow-visible mr-4">
         {/* Header */}
         <div className="flex justify-between items-center p-4 border-b border-gray-200">
           <h3 className="font-semibold text-gray-800">Settings</h3>
@@ -181,35 +212,55 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Default Model
                     </label>
-                    <div className="relative group">
-  <div className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-800 cursor-pointer hover:border-gray-300 transition-all flex items-center justify-between">
-    <span>Gemini Pro</span>
-    <svg className="w-4 h-4 text-gray-500 transform group-hover:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  </div>
-  
-  {/* Dropdown menu - appears on hover/click */}
-  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-    <div className="py-1">
-      <button className="w-full px-3 py-2 text-sm text-gray-800 hover:bg-gray-50 flex items-center gap-2">
-        <span className="text-base">🤖</span>
-        <span>Gemini Pro</span>
-      </button>
-      <button className="w-full px-3 py-2 text-sm text-gray-800 hover:bg-gray-50 flex items-center gap-2">
-        <span className="text-base">⚡</span>
-        <span>GPT-4</span>
-      </button>
-      <button className="w-full px-3 py-2 text-sm text-gray-800 hover:bg-gray-50 flex items-center gap-2">
-        <span className="text-base">🧠</span>
-        <span>Claude 3</span>
-      </button>
-    </div>
-  </div>
-</div>
+                                                                                <div className="relative" ref={modelMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => setModelMenuOpen((open) => !open)}
+                        className="w-full p-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-800 cursor-pointer hover:border-gray-300 transition-all flex items-center justify-between"
+                        aria-expanded={modelMenuOpen}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="text-base">{selectedModel?.icon}</span>
+                          <span>{selectedModel?.name}</span>
+                        </span>
+                        <svg className={`w-4 h-4 text-gray-500 transition-transform ${modelMenuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      {modelMenuOpen && (
+                        <div className="absolute z-10 w-full bottom-full mb-2 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                          <div className="py-1 max-h-60 overflow-y-auto scrollbar-thin">
+                            {MODEL_OPTIONS.map((model) => (
+                              <button
+                                key={model.id}
+                                type="button"
+                                onClick={() => {
+                                  setDefaultModelId(model.id);
+                                  setDefaultModelIdState(model.id);
+                                  setModelMenuOpen(false);
+                                }}
+                                className={`w-full px-3 py-2 text-sm text-gray-800 hover:bg-gray-50 flex items-center gap-2 ${model.id === defaultModelId ? "bg-purple-50" : ""}`}
+                              >
+                                <span className="text-base">{model.icon}</span>
+                                <span className="flex-1 text-left">{model.name}</span>
+                                {model.id === defaultModelId && (
+                                  <span className="text-purple-600">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
+
 
               {activeSection === "notifications" && (
                 <div className="space-y-3">
@@ -306,3 +357,7 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
 };
 
 export default SettingsPanel;   
+
+
+
+
