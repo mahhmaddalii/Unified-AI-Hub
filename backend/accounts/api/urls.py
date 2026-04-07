@@ -6,6 +6,8 @@ urlpatterns = [
     path('signup/', views.signup_view, name='signup'),
     path('login/', views.login_view, name='login'),
     path('forgot-password/', views.forgot_password_view, name='forgot_password'),
+    path('me/', views.me_view, name='me'),
+    path('google/token-login/', views.GoogleTokenLogin.as_view(), name='google_token_login'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('google/post-login/', views.google_post_login, name='google_post_login'),
     path("accounts/", include("allauth.urls")),
