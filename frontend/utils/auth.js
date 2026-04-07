@@ -71,3 +71,30 @@ export const fetchWithAuth = async (url, options = {}) => {
 
   return res;
 };
+
+// Check if there is an active session without mutating tokens
+export const checkActiveSession = async () => {
+  const token = getAccessToken();
+  if (!token) {
+    return { isAuthenticated: false, user: null };
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/api/me/`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return { isAuthenticated: true, user: data };
+    }
+  } catch (err) {
+    console.error("Active session check failed:", err);
+  }
+
+  return { isAuthenticated: false, user: null };
+};

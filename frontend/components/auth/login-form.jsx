@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
-import { API_URL, setTokens } from "../../utils/auth";
+import { API_URL, checkActiveSession, setTokens } from "../../utils/auth";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -30,30 +30,51 @@ export default function LoginForm() {
 
   // Check for Google auth callback on component mount
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const accessToken = urlParams.get('access');
-    const refreshToken = urlParams.get('refresh');
-    const email = urlParams.get('email');
-    const success = urlParams.get('success');
-    
-    if (success === 'true' && accessToken && refreshToken) {
-      // Store tokens from Google OAuth
-      setTokens({ 
-        access: accessToken, 
-        refresh: refreshToken 
-      });
+    let cancelled = false;
+
+    const init = async () => {
+      const session = await checkActiveSession();
+      if (!cancelled && session.isAuthenticated) {
+        router.replace("/chat");
+        return;
+      }
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const accessToken = urlParams.get('access');
+      const refreshToken = urlParams.get('refresh');
+      const email = urlParams.get('email');
+      const success = urlParams.get('success');
       
-      setMessage(`✅ Google login successful! Welcome ${email}. Redirecting...`);
-      
-      // Clean up URL
-      const cleanUrl = window.location.pathname;
-      window.history.replaceState({}, document.title, cleanUrl);
-      
-      setTimeout(() => router.push("/chat"), 1000);
-    }
+      if (success === 'true' && accessToken && refreshToken) {
+        // Store tokens from Google OAuth
+        setTokens({ 
+          access: accessToken, 
+          refresh: refreshToken 
+        });
+        setMessage(`✅ Google login successful! Welcome ${email}. Redirecting...`);
+        
+        // Clean up URL
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+        
+        setTimeout(() => router.push("/chat"), 1000);
+      }
+    };
+
+    init();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   const handleGoogleTokenLogin = useCallback(async (accessToken) => {
+    const session = await checkActiveSession();
+    if (session.isAuthenticated) {
+      router.replace("/chat");
+      return;
+    }
+
     debug("Received Google access token", {
       length: accessToken?.length,
       hasToken: !!accessToken
@@ -172,6 +193,11 @@ export default function LoginForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const session = await checkActiveSession();
+    if (session.isAuthenticated) {
+      router.replace("/chat");
+      return;
+    }
     setIsLoading(true);
     setMessage("");
     setError("");
@@ -308,3 +334,8 @@ export default function LoginForm() {
     </div>
   );
 }
+
+
+
+
+

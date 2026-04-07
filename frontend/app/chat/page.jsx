@@ -637,6 +637,10 @@ function ChatPageContent() {
 
   // ========== RENDER ==========
 
+  if (userLoading || !user) {
+    return null;
+  }
+
   return (
     <main className="h-screen bg-white">
       <div className="flex flex-col h-full overflow-hidden">
@@ -679,9 +683,9 @@ function ChatPageContent() {
   ${!isSidebarOpen && !isMobile ? 'md:ml-20' : 'md:ml-0'}
 `}>
             <div className="h-full m-2 md:m-4 flex flex-col">
-              <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl flex flex-col overflow-hidden h-[87vh]">
+              <div className="bg-white rounded-xl md:rounded-3xl shadow-md md:shadow-xl flex flex-col h-[87vh] overflow-hidden">
                 {showAgentDashboard ? (
-                  <div className="flex-1 overflow-y-auto scrollbar-thin h-full">
+                  <div className="flex-1 h-full overflow-y-auto scrollbar-thin scrollbar-no-arrows">
                     <AgentDashboard
                       initialActiveChats={chats}
                       selectedAgent={contextSelectedAgent}
