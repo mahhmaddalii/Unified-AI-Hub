@@ -1,0 +1,52 @@
+import { DeepSeek, OpenAI, Gemini, Claude, Mistral, Meta } from '@lobehub/icons';
+
+const STORAGE_KEY = "defaultModelId";
+export const DEFAULT_MODEL_ID = "gemini-flashlite";
+
+export const MODEL_OPTIONS = [
+  { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={20} /> },
+  { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={20} /> },
+  { id: "gpt5-nano", name: "GPT-5 Nano", description: "Good for complex reasoning", icon: <OpenAI size={20} /> },
+  { id: "gemini-flashlite", name: "Gemini Pro", description: "Great for multimodal tasks", icon: <Gemini.Color size={20} /> },
+  { id: "gemini-2.5-flash-image", name: "Gemini 2.5 Flash", description: "Image generation & preview", icon: <Gemini.Color size={20} /> },
+  { id: "llama guard 4", name: "Llama 3", description: "Open-source alternative", icon: <Meta size={20} /> },
+  { id: "mistral nemo", name: "Mistral", description: "Efficient and fast", icon: <Mistral.Color size={20} /> },
+];
+
+export const getDefaultModelId = () => {
+  if (typeof window === "undefined") return DEFAULT_MODEL_ID;
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored && MODEL_OPTIONS.some((model) => model.id === stored)) {
+    return stored;
+  }
+  return DEFAULT_MODEL_ID;
+};
+
+export const setDefaultModelId = (modelId) => {
+  if (typeof window === "undefined") return;
+  if (!MODEL_OPTIONS.some((model) => model.id === modelId)) return;
+  localStorage.setItem(STORAGE_KEY, modelId);
+  window.dispatchEvent(new CustomEvent("default-model-changed", { detail: modelId }));
+};
+
+export const subscribeDefaultModel = (callback) => {
+  if (typeof window === "undefined") return () => {};
+
+  const handleCustomEvent = (event) => {
+    callback(event.detail);
+  };
+
+  const handleStorage = (event) => {
+    if (event.key === STORAGE_KEY && event.newValue) {
+      callback(event.newValue);
+    }
+  };
+
+  window.addEventListener("default-model-changed", handleCustomEvent);
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    window.removeEventListener("default-model-changed", handleCustomEvent);
+    window.removeEventListener("storage", handleStorage);
+  };
+};
