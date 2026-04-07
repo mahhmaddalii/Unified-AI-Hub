@@ -8,12 +8,17 @@ from django.utils.http import urlsafe_base64_encode
 from django.shortcuts import redirect
 from urllib.parse import urlencode
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import SignupSerializer
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.contrib.auth.decorators import login_required
+from allauth.socialaccount.models import SocialAccount
+from dj_rest_auth.registration.views import SocialLoginView
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
 
 User = get_user_model()
@@ -124,6 +129,44 @@ def google_post_login(request):
     redirect_url = f"{frontend_url}?{query_string}"
     
     return HttpResponseRedirect(redirect_url)
+
+
+class GoogleTokenLogin(SocialLoginView):
+    adapter_class = GoogleOAuth2Adapter
+    client_class = OAuth2Client
+
+
+# ---------- Current User ----------
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me_view(request):
+    user = request.user
+
+    name_parts = [user.first_name or "", user.last_name or ""]
+    name = " ".join(part for part in name_parts if part).strip()
+
+    avatar_url = None
+    google_account = SocialAccount.objects.filter(user=user, provider="google").first()
+    if google_account:
+        extra = google_account.extra_data or {}
+        avatar_url = extra.get("picture") or extra.get("avatar_url")
+        if not name:
+            google_name = extra.get("name")
+            if not google_name:
+                google_name = " ".join(
+                    part for part in [extra.get("given_name"), extra.get("family_name")] if part
+                ).strip()
+            if google_name:
+                name = google_name
+
+    if not name:
+        name = (user.email.split("@")[0] if user.email else "User")
+
+    return Response({
+        "name": name,
+        "email": user.email,
+        "avatarUrl": avatar_url
+    })
 
 
 

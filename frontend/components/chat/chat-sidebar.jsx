@@ -6,12 +6,12 @@ import SettingsPanel from './settings-panel';
 import { useState, useEffect, useRef } from "react";
 import { useAgents } from "../agents/AgentContext";
 import { showToast } from '../../utils/toast'; 
+import { useAuth } from "../auth/auth-context";
 import {
   PlusIcon,
   ChatBubbleOvalLeftIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  UserIcon,
   Cog6ToothIcon,
   PencilSquareIcon,
   ShareIcon,
@@ -71,6 +71,7 @@ export default function UnifiedSidebar({
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const router = useRouter();
   const [activeBuiltInChats, setActiveBuiltInChats] = useState({});
+  const { user, loading: userLoading, logout } = useAuth();
 
   // Use selected agent from context or external prop
   const selectedAgent = contextSelectedAgent || externalSelectedAgent;
@@ -95,12 +96,21 @@ export default function UnifiedSidebar({
     "mistral nemo": "Mistral",
   };
 
-  // User profile data
-  const [userProfile, setUserProfile] = useState({
-    name: "Alex Johnson",
-    email: "alex.johnson@example.com",
-    plan: "Pro",
-  });
+  const getInitials = (nameValue, emailValue) => {
+    const safeName = (nameValue || "").trim();
+    if (safeName) {
+      const parts = safeName.split(" ").filter(Boolean);
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    if (emailValue) return emailValue.slice(0, 2).toUpperCase();
+    return "U";
+  };
+
+  const displayName = user?.name || (userLoading ? "Loading..." : "User");
+  const displayEmail = user?.email || "";
+  const avatarUrl = user?.avatarUrl || null;
+  const initials = getInitials(displayName, displayEmail);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -420,7 +430,7 @@ export default function UnifiedSidebar({
 
   const handleLogout = () => {
     setShowProfileModal(false);
-    console.log("Logout clicked");
+    logout();
   };
 
   const profileMenuItems = [
@@ -1173,21 +1183,25 @@ export default function UnifiedSidebar({
                   : "text-gray-600 hover:bg-gray-50"
                   }`}
               >
-                <div
-                  className={`p-1 rounded-lg ${showProfileModal ? "bg-white" : "bg-gray-100"
-                    }`}
-                >
-                  <UserIcon
-                    className={`w-4 h-4 ${showProfileModal ? "text-purple-600" : "text-gray-600"
-                      }`}
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt={displayName}
+                    className="w-9 h-9 rounded-full object-cover"
                   />
-                </div>
+                ) : (
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold ${
+                    showProfileModal ? "bg-purple-600 text-white" : "bg-gray-300 text-gray-700"
+                  }`}>
+                    {initials}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-gray-800 text-sm truncate">
-                    {userProfile.name}
+                    {displayName}
                   </div>
                   <div className="text-gray-500 text-xs truncate">
-                    {userProfile.email}
+                    {displayEmail}
                   </div>
                 </div>
               </button>

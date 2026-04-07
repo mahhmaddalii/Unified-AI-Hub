@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
@@ -19,6 +19,14 @@ export default function LoginForm() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [tokenClient, setTokenClient] = useState(null);
+  const [isGoogleReady, setIsGoogleReady] = useState(false);
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  const debug = (...args) => {
+    if (typeof window !== "undefined") {
+      console.log("[GoogleLogin]", ...args);
+    }
+  };
 
   // Check for Google auth callback on component mount
   useEffect(() => {
@@ -45,6 +53,100 @@ export default function LoginForm() {
     }
   }, [router]);
 
+  const handleGoogleTokenLogin = useCallback(async (accessToken) => {
+    debug("Received Google access token", {
+      length: accessToken?.length,
+      hasToken: !!accessToken
+    });
+    setIsLoading(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(`${API_URL}/api/google/token-login/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: accessToken }),
+      });
+
+      const data = await response.json();
+      debug("Token login response", {
+        status: response.status,
+        ok: response.ok,
+        keys: data ? Object.keys(data) : [],
+        hasAccess: !!data?.access,
+        hasRefresh: !!data?.refresh,
+        hasKey: !!data?.key,
+        detail: data?.detail || data?.error || null
+      });
+
+      if (response.ok && data.access && data.refresh) {
+        setTokens({ access: data.access, refresh: data.refresh });
+        setMessage("✅ Google login successful! Redirecting...");
+        setTimeout(() => router.push("/chat"), 800);
+      } else {
+        setError(data.detail || "Google login failed. Please try again.");
+      }
+    } catch (err) {
+      console.error("Google token login error:", err);
+      debug("Token login exception", { message: err?.message });
+      setError("Google login failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!googleClientId) return;
+
+    const initClient = () => {
+      if (!window.google?.accounts?.oauth2) return;
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: googleClientId,
+        scope: "openid email profile",
+        callback: (tokenResponse) => {
+          debug("Google token response", {
+            hasAccessToken: !!tokenResponse?.access_token,
+            expiresIn: tokenResponse?.expires_in,
+            error: tokenResponse?.error,
+            errorDescription: tokenResponse?.error_description
+          });
+          if (tokenResponse?.access_token) {
+            handleGoogleTokenLogin(tokenResponse.access_token);
+          } else {
+            setError("Google login failed. Please try again.");
+          }
+        },
+      });
+      debug("Google token client initialized");
+      setTokenClient(client);
+      setIsGoogleReady(true);
+    };
+
+    if (window.google?.accounts?.oauth2) {
+      debug("Google Identity Services already loaded");
+      initClient();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = initClient;
+    script.onerror = () => {
+      debug("Failed to load Google Identity Services script");
+      setError("Failed to load Google Sign-In.");
+    };
+    document.head.appendChild(script);
+
+    return () => {
+      script.onload = null;
+      script.onerror = null;
+    };
+  }, [googleClientId, handleGoogleTokenLogin]);
+
   const togglePasswordVisibility = () => setShowPassword((prev) => !prev);
 
   const handleChange = (e) => {
@@ -56,8 +158,16 @@ export default function LoginForm() {
   };
 
   const handleGoogleLogin = () => {
-    // Redirect to Google OAuth endpoint
-    window.location.href = `${API_URL}/accounts/google/login/`;
+    if (!googleClientId) {
+      setError("Google Client ID is missing. Please set NEXT_PUBLIC_GOOGLE_CLIENT_ID.");
+      return;
+    }
+    if (!tokenClient) {
+      setError("Google Sign-In is still loading. Please try again.");
+      return;
+    }
+    debug("Requesting Google access token");
+    tokenClient.requestAccessToken({ prompt: "select_account" });
   };
 
   const handleSubmit = async (e) => {
@@ -108,6 +218,7 @@ export default function LoginForm() {
         <button
           type="button"
           onClick={handleGoogleLogin}
+          disabled={!isGoogleReady || isLoading}
           className="flex items-center justify-center w-full py-3 mb-6 text-sm font-medium text-gray-900 bg-gray-200 rounded-2xl hover:bg-gray-300 transition-all duration-300 animate-fade-in delay-200"
         >
           <img src="/logo-google.png" alt="Google" className="h-5 mr-2" />
