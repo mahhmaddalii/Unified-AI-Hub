@@ -637,6 +637,10 @@ function ChatPageContent() {
 
   // ========== RENDER ==========
 
+  if (userLoading || !user) {
+    return null;
+  }
+
   return (
     <main className="h-screen bg-white">
       <div className="flex flex-col h-full overflow-hidden">
