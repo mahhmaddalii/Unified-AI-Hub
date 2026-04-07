@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import ChatSidebar from "../../components/chat/chat-sidebar";
 import ChatWindow from "../../components/chat/chat-window";
 import Navbar from "../../components/chat/chat-navbar";
@@ -8,11 +9,15 @@ import AgentDashboard from "../../components/agents/adashboard";
 import { AgentProvider, useAgents } from "../../components/agents/AgentContext";
 import { ToastContainer } from 'react-toastify';
 import { toastContainerProps, toastStyles, showToast } from '../../utils/toast';
+import { AuthProvider, useAuth } from "../../components/auth/auth-context";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 // Inner component that uses AgentContext
 function ChatPageContent() {
+  const router = useRouter();
+  const { user, loading: userLoading } = useAuth();
+
   // ========== GET AGENT STATE FROM CONTEXT ONLY ==========
   const {
     selectedAgent: contextSelectedAgent,
@@ -48,6 +53,12 @@ function ChatPageContent() {
       document.head.removeChild(style);
     };
   }, []);
+
+  useEffect(() => {
+    if (!userLoading && !user) {
+      router.replace("/login");
+    }
+  }, [userLoading, user, router]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -710,10 +721,12 @@ function ChatPageContent() {
 // Main page wrapper
 export default function ChatPage() {
   return (
-    <AgentProvider>
-      {/* ✅ REPLACE the old ToastContainer with this single line */}
-      <ToastContainer {...toastContainerProps} />
-      <ChatPageContent />
-    </AgentProvider>
+    <AuthProvider>
+      <AgentProvider>
+        {/* ✅ REPLACE the old ToastContainer with this single line */}
+        <ToastContainer {...toastContainerProps} />
+        <ChatPageContent />
+      </AgentProvider>
+    </AuthProvider>
   );
 }

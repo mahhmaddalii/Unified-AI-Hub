@@ -14,12 +14,14 @@ import {
   ArrowRightStartOnRectangleIcon,
 } from "@heroicons/react/24/outline";
 import { useRouter } from "next/navigation";
+import { useAuth } from "../auth/auth-context";
 
 export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) => {
   const [activeSection, setActiveSection] = useState(initialSection);
   const [notifications, setNotifications] = useState(true);
   const [autoSave, setAutoSave] = useState(true);
   const [searchHistory, setSearchHistory] = useState(true);
+  const { user, loading: userLoading } = useAuth();
   
   const router = useRouter();
 
@@ -30,12 +32,21 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
 
   if (!isOpen) return null;
 
-  const userProfile = {
-    name: "Alex Johnson",
-    email: "alex.johnson@example.com",
-    plan: "Pro",
-    avatar: "AJ",
+  const getInitials = (nameValue, emailValue) => {
+    const safeName = (nameValue || "").trim();
+    if (safeName) {
+      const parts = safeName.split(" ").filter(Boolean);
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    if (emailValue) return emailValue.slice(0, 2).toUpperCase();
+    return "U";
   };
+
+  const displayName = user?.name || (userLoading ? "Loading..." : "User");
+  const displayEmail = user?.email || "";
+  const avatarUrl = user?.avatarUrl || null;
+  const initials = getInitials(displayName, displayEmail);
 
   const sections = [
     { id: "general", icon: Cog6ToothIcon, title: "General" },
@@ -82,19 +93,27 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
           {/* User Profile Section */}
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                {userProfile.avatar}
-              </div>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={displayName}
+                  className="w-10 h-10 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                  {initials}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-gray-800 text-sm truncate">
-                  {userProfile.name}
+                  {displayName}
                 </div>
                 <div className="text-gray-500 text-xs truncate">
-                  {userProfile.email}
+                  {displayEmail}
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
-                    {userProfile.plan} Plan
+                    Pro Plan
                   </span>
                   <button 
                     onClick={handleUpgradePlan}
