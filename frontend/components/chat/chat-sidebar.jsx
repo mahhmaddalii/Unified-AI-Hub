@@ -1084,7 +1084,7 @@ export default function UnifiedSidebar({
                                       <span>{modelName}</span>
                                     </div>
                                     {isActive ? (
-                                      <div className="w-2 h-2 rounded-full bg-green-500" title="Active" />
+                                      <div title="Active" />
                                     ) : (
                                       <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-medium rounded-full">
                                         Inactive

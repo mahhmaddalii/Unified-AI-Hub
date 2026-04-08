@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { SparklesIcon } from "@heroicons/react/24/outline";
+import SparklesIcon from "@heroicons/react/24/outline/SparklesIcon";
 import Image from "next/image";
 import { OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
 import ReactMarkdown from 'react-markdown';
@@ -39,6 +39,7 @@ export default function ChatWindow({
   const { notifyMessage, clearNotifications } = useNotifications();
 
   const modelIcons = {
+    "auto": <SparklesIcon className="w-4 h-4 text-purple-600" />,
     "gemini-flashlite": <Gemini.Color size={16} />,
     "deepseek-chat": <DeepSeek.Color size={16} />,
     "claude-3 haiku": <Claude.Color size={16} />,
@@ -48,6 +49,7 @@ export default function ChatWindow({
   };
 
   const modelDisplayNames = {
+    "auto": "Auto",    
     "gemini-flashlite": "Gemini",
     "deepseek-chat": "DeepSeek",
     "claude-3 haiku": "Claude",
@@ -78,6 +80,12 @@ export default function ChatWindow({
   // Built-in domain agents now send chat_id only.
   // Backend resolves and owns the actual thread/session identifier.
   // ─────────────────────────────────────────────────────────────
+
+  const buildComsatsUrl = useCallback((text, chatIdForRequest) => {
+  const encodedChatId = encodeURIComponent(chatIdForRequest || '');
+  return `http://127.0.0.1:8000/api/comsats_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
+  }, []);
+
   const buildCricketUrl = useCallback((text, chatIdForRequest) => {
     const encodedChatId = encodeURIComponent(chatIdForRequest || '');
     return `http://127.0.0.1:8000/api/cricket_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
@@ -589,6 +597,8 @@ export default function ChatWindow({
         url = buildCricketUrl(apiText, currentChatId);
       } else if (selectedAgent?.id === 'builtin-politics') {
         url = buildPoliticsUrl(apiText, currentChatId);
+      } else if (selectedAgent?.id === 'builtin-comsats') {
+        url = buildComsatsUrl(apiText, currentChatId);
       } else {
         url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(apiText)}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
       }
@@ -600,7 +610,7 @@ export default function ChatWindow({
       setStatusMsg("Unable to start chat right now.");
       onSetLoading?.(false);
     }
-  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent, buildCricketUrl, buildPoliticsUrl]);
+  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent, buildCricketUrl, buildPoliticsUrl, buildComsatsUrl]);
 
   const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
     if (!targetChatId) return;
