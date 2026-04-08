@@ -20,8 +20,39 @@ MODEL_MAP = {
     "deepseek-chat": "deepseek/deepseek-chat",
     "claude-3 haiku": "anthropic/claude-3-haiku",
     "mistral nemo": "mistralai/mistral-nemo",
-    "llama guard 4": "meta-llama/llama-4-maverick" 
+    "llama guard 4": "meta-llama/llama-4-maverick"
 }
+
+IMAGE_GENERATION_MODEL = "gemini-2.5-flash-image"
+AUTO_MODEL_DEFAULT = "gemini-flashlite"
+
+CODE_MODEL_PATTERNS = (
+    r"\b(code|debug|bug|fix|error|exception|stack trace|algorithm|sql|query|regex)\b",
+    r"\b(python|javascript|typescript|java|c\+\+|c#|react|next\.js|django|flask|api)\b",
+)
+
+WRITING_MODEL_PATTERNS = (
+    r"\b(write|rewrite|rephrase|draft|email|essay|blog|caption|story|poem|creative)\b",
+    r"\b(improve this writing|make this sound|tone|grammar)\b",
+)
+
+SUPPORT_MODEL_PATTERNS = (
+    r"\b(support|customer support|refund|billing|subscription|order|account issue)\b",
+    r"\b(can't log in|cannot log in|troubleshoot|issue with my account|help me with)\b",
+)
+
+REASONING_MODEL_PATTERNS = (
+    r"\b(compare|analysis|analyze|reason|plan|architecture|design|tradeoff|step by step)\b",
+    r"\b(math|proof|derive|explain why|strategy|approach)\b",
+)
+
+IMAGE_MODEL_PATTERNS = (
+    r"\b(generate|create|make|draw|design|illustrate)\b.*\b(image|picture|photo|poster|logo|art|artwork|avatar|banner|wallpaper)\b",
+    r"\b(image|picture|photo|poster|logo|art|artwork|avatar|banner|wallpaper)\b.*\b(generate|create|make|draw|design|illustrate)\b",
+    r"\bturn this into an image\b",
+    r"\bcreate an image of\b",
+    r"\bgenerate an image of\b",
+)
 
 # -------------------- API Keys --------------------
 os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
@@ -69,6 +100,43 @@ def init_model(model_id: str = "openai/gpt-5-nano"):
         base_url="https://openrouter.ai/api/v1",
         streaming=True  # Enable streaming
     )
+
+
+def resolve_normal_chat_model(user_input: str, requested_model: str) -> str:
+    """
+    Resolve the backend model for normal chat.
+
+    Manual selection remains untouched. The `auto` option only routes between
+    the existing text models in this module, while explicit image generation
+    continues to use the separate branch in chat/views.py.
+    """
+    if requested_model == IMAGE_GENERATION_MODEL:
+        return IMAGE_GENERATION_MODEL
+
+    if requested_model != "auto":
+        return requested_model if requested_model in MODEL_MAP else "gpt5-nano"
+
+    normalized_input = (user_input or "").strip().lower()
+
+    if any(re.search(pattern, normalized_input) for pattern in IMAGE_MODEL_PATTERNS):
+        return IMAGE_GENERATION_MODEL
+
+    if any(re.search(pattern, normalized_input) for pattern in CODE_MODEL_PATTERNS):
+        return "gpt5-nano"
+
+    if any(re.search(pattern, normalized_input) for pattern in WRITING_MODEL_PATTERNS):
+        return "claude-3 haiku"
+
+    if any(re.search(pattern, normalized_input) for pattern in SUPPORT_MODEL_PATTERNS):
+        return "deepseek-chat"
+
+    if any(re.search(pattern, normalized_input) for pattern in REASONING_MODEL_PATTERNS):
+        return "gpt5-nano"
+
+    if len(normalized_input) > 600:
+        return "gpt5-nano"
+
+    return AUTO_MODEL_DEFAULT
 
 # -------------------- System Prompt --------------------
 system_message = """
@@ -302,7 +370,8 @@ def get_chat_history(chat_id=None):
 def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
     try:
         chat_id, chat_history = get_chat_history(chat_id)
-        provider_model = MODEL_MAP.get(model_id, "openai/gpt-5-nano")
+        resolved_model_id = resolve_normal_chat_model(user_input, model_id)
+        provider_model = MODEL_MAP.get(resolved_model_id, "openai/gpt-5-nano")
         model = init_model(provider_model)
         
         tools = [search_tool, document_search_tool]
@@ -317,6 +386,8 @@ def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
         
         chat_history.add_user_message(user_input)
         print(f"=== EXECUTING CHAT {chat_id} ===")
+        print(f"Requested model: {model_id}")
+        print(f"Resolved model: {resolved_model_id}")
         
         # Run the agent (tool calling happens here)
         result = agent_executor.invoke({

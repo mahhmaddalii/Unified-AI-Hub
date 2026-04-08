@@ -13,6 +13,7 @@ from .documents import CONNECTION_STRING, COLLECTION_NAME, load_vectorstore
 from .gemini import get_bot_response
 from .gemini import generate_chat_title
 from .gemini import chat_histories, chat_lock
+from .gemini import resolve_normal_chat_model, IMAGE_GENERATION_MODEL
 from .generate_image import image_generator
 from dotenv import load_dotenv
 import sys, re
@@ -115,6 +116,10 @@ def chat_view(request):
         except Exception as e:
             print(f"⚠️ Title generation failed: {e}")
             chat_title = query[:30] + "..." if len(query) > 30 else query
+
+    resolved_model_id = resolve_normal_chat_model(query, model_id)
+    print(f"Requested model: {model_id}")
+    print(f"Resolved model: {resolved_model_id}")
     
     # No automatic RAG here — agent decides via tool
     
@@ -123,7 +128,7 @@ def chat_view(request):
             if is_first_message and chat_title:
                 yield f"data: [TITLE]{chat_title}\n\n"
             
-            if model_id == "gemini-2.5-flash-image":
+            if resolved_model_id == IMAGE_GENERATION_MODEL:
                 print("=== Generating Gemini 2.5 Image ===")
                 try:
                     text_response, image_url = image_generator(query)
@@ -149,7 +154,7 @@ def chat_view(request):
                 return
             
             # Normal chat — agent handles RAG via tool
-            for chunk in get_bot_response(query, model_id, chat_id):
+            for chunk in get_bot_response(query, resolved_model_id, chat_id):
                 if chunk.strip():
                     yield f"data: {chunk.replace('\n', '\\n')}\n\n"
                     import time
