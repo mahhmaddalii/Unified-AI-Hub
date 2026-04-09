@@ -60,6 +60,24 @@ function ChatPageContent() {
     }
   }, [userLoading, user, router]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const gmailConnected = params.get("gmail_connected");
+    const gmailMessage = params.get("gmail_message");
+
+    if (!gmailConnected) return;
+
+    if (gmailConnected === "true") {
+      showToast.success(gmailMessage || "Gmail connected successfully.");
+    } else {
+      showToast.error(gmailMessage || "Failed to connect Gmail.");
+    }
+
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, []);
+
   // Keep ref in sync with state
   useEffect(() => {
     latestActiveChatId.current = activeChatId;

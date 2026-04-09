@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.utils import timezone
 
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -38,3 +39,21 @@ class CustomUser(AbstractUser):
     def __str__(self):
         return self.email
     pass
+
+
+class GmailOAuthCredential(models.Model):
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="gmail_oauth_credential",
+    )
+    google_email = models.EmailField(blank=True, null=True)
+    access_token = models.TextField(blank=True)
+    refresh_token = models.TextField(blank=True)
+    expires_at = models.DateTimeField(blank=True, null=True)
+    scope = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.google_email or f"Gmail OAuth for {self.user.email}"
