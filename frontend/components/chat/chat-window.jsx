@@ -12,6 +12,7 @@ import { toast } from 'react-toastify';
 import { useNotifications } from '../../utils/useNotifications';
 import rehypeRaw from 'rehype-raw';
 import { MODEL_OPTIONS, getDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
+import { API_URL, fetchWithAuth, getAccessToken } from "../../utils/auth";
 
 export default function ChatWindow({
   chatId,
@@ -34,6 +35,7 @@ export default function ChatWindow({
   const [isAgentDeactivated, setIsAgentDeactivated] = useState(false);
   const [isLiveUpdatesActive, setIsLiveUpdatesActive] = useState(false);
   const [isStoppingUpdates, setIsStoppingUpdates] = useState(false);
+  const [isSendingDraftEmail, setIsSendingDraftEmail] = useState(false);
 
   // Browser notifications (tab badge + sound) — zero effect on stream logic
   const { notifyMessage, clearNotifications } = useNotifications();
@@ -83,7 +85,8 @@ export default function ChatWindow({
 
   const buildComsatsUrl = useCallback((text, chatIdForRequest) => {
   const encodedChatId = encodeURIComponent(chatIdForRequest || '');
-  return `http://127.0.0.1:8000/api/comsats_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
+  const accessToken = encodeURIComponent(getAccessToken() || '');
+  return `http://127.0.0.1:8000/api/comsats_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}&access_token=${accessToken}`;
   }, []);
 
   const buildCricketUrl = useCallback((text, chatIdForRequest) => {
@@ -200,7 +203,17 @@ export default function ChatWindow({
   }, [chatId]);
 
   useEffect(() => {
-    setMessages(propMessages);
+    setMessages(prev => propMessages.map(message => {
+      const existing = prev.find(prevMessage => prevMessage.id === message.id);
+      return existing
+        ? {
+            ...message,
+            emailDraft: existing.emailDraft ?? message.emailDraft,
+            emailDraftDismissed: existing.emailDraftDismissed ?? message.emailDraftDismissed,
+            emailSent: existing.emailSent ?? message.emailSent,
+          }
+        : message;
+    }));
   }, [propMessages, chatId]);
 
   // ─────────────────────────────────────────────────────────────
@@ -296,6 +309,111 @@ export default function ChatWindow({
   }, []); // Empty deps — only runs on mount/unmount
 
   const aiModels = MODEL_OPTIONS;
+  const EMAIL_DRAFT_TAG = "[EMAIL_DRAFT]";
+
+  const extractEmailDraft = useCallback((rawText, existingDraft = null) => {
+    if (typeof rawText !== "string") {
+      return { displayText: rawText, emailDraft: existingDraft };
+    }
+
+    const parseVisibleDraft = (text) => {
+      const normalized = text.replace(/\*\*/g, "").trim();
+      const match = normalized.match(
+        /(?:^|\n)(?:to|recipient)\s*:\s*(?<recipient>[^\n]+)\n+subject\s*:\s*(?<subject>[^\n]+)\n+body\s*:\s*(?<body>.+)$/is
+      );
+      if (!match?.groups) return null;
+
+      const recipient_email = (match.groups.recipient || "").trim();
+      const subject = (match.groups.subject || "").trim();
+      let body = (match.groups.body || "").trim();
+
+      body = body.replace(/\n{1,2}does this .*$/is, "").trim();
+      body = body.replace(/\n{1,2}reply\s+["“”']?(yes|send).*$/is, "").trim();
+
+      if (!recipient_email || !subject || !body) return null;
+      if (!recipient_email.toLowerCase().includes("@cuilahore.edu.pk")) return null;
+
+      return { recipient_email, subject, body };
+    };
+
+    const markerIndex = rawText.indexOf(EMAIL_DRAFT_TAG);
+    if (markerIndex === -1) {
+      return { displayText: rawText, emailDraft: parseVisibleDraft(rawText) || existingDraft };
+    }
+
+    const displayText = rawText.slice(0, markerIndex).trimEnd();
+    const payloadText = rawText.slice(markerIndex + EMAIL_DRAFT_TAG.length).trim();
+
+    let emailDraft = existingDraft;
+    if (payloadText) {
+      try {
+        const parsed = JSON.parse(payloadText);
+        if (parsed?.recipient_email && parsed?.subject && parsed?.body) {
+          emailDraft = parsed;
+        }
+      } catch {
+        // Ignore incomplete JSON until the stream finishes.
+      }
+    }
+
+    return { displayText, emailDraft: emailDraft || parseVisibleDraft(displayText) };
+  }, []);
+
+  const dismissPendingDrafts = useCallback(() => {
+    const updates = [];
+    setMessages(prev => prev.map(message => {
+      if (message.role === "assistant" && message.emailDraft && !message.emailSent && !message.emailDraftDismissed) {
+        const updated = { ...message, emailDraftDismissed: true };
+        updates.push(updated);
+        return updated;
+      }
+      return message;
+    }));
+    updates.forEach(updated => onNewMessage?.({ ...updated, chatId: latestChatIdRef.current || chatId }));
+  }, [chatId, onNewMessage]);
+
+  const handleSendDraftEmail = useCallback(async (messageId, emailDraft) => {
+    if (!emailDraft || isSendingDraftEmail) return;
+
+    setIsSendingDraftEmail(true);
+    setStatusMsg("");
+
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/comsats_agent/send-email/`, {
+        method: "POST",
+        body: JSON.stringify(emailDraft),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data?.requires_gmail_connect && data?.connect_url) {
+          window.open(data.connect_url, "_self");
+          return;
+        }
+        throw new Error(data?.error || "Unable to send email right now.");
+      }
+
+      let updatedMessage = null;
+      setMessages(prev => prev.map(message => {
+        if (message.id === messageId) {
+          updatedMessage = { ...message, emailSent: true, emailDraftDismissed: true };
+          return updatedMessage;
+        }
+        return message;
+      }));
+      if (updatedMessage) {
+        onNewMessage?.({ ...updatedMessage, chatId: latestChatIdRef.current || chatId });
+      }
+      toast.success(data?.message || "Email sent successfully.");
+    } catch (error) {
+      console.error("Failed to send drafted email:", error);
+      const message = error.message || "Unable to send email right now.";
+      setStatusMsg(message);
+      toast.error(message);
+    } finally {
+      setIsSendingDraftEmail(false);
+    }
+  }, [isSendingDraftEmail]);
 
   const promptCards = [
     { title: "Explain concepts", prompt: "Explain quantum computing in simple terms", icon: "🧠" },
@@ -553,6 +671,7 @@ export default function ChatWindow({
       const hasText = input.trim().length > 0;
       const hasFiles = attachedFiles.length > 0;
       if (!hasText && !hasFiles) return;
+      dismissPendingDrafts();
 
       const userMsgId = generateUniqueId();
       const userMsg = {
@@ -610,7 +729,7 @@ export default function ChatWindow({
       setStatusMsg("Unable to start chat right now.");
       onSetLoading?.(false);
     }
-  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent, buildCricketUrl, buildPoliticsUrl, buildComsatsUrl]);
+  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent, buildCricketUrl, buildPoliticsUrl, buildComsatsUrl, dismissPendingDrafts]);
 
   const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
     if (!targetChatId) return;
@@ -632,6 +751,7 @@ export default function ChatWindow({
       receivedFirstMessage: false,
       hasImage: false,
       assistantMessage: null,
+      assistantRawText: "",
       imageUrl: null,
       buffer: "",
       lastUpdateTime: Date.now(),
@@ -683,7 +803,12 @@ export default function ChatWindow({
         activeStreamsRef.current.delete(targetChatId);
 
         if (state.buffer && state.assistantMessage) {
-          state.assistantMessage.text += state.buffer;
+          state.assistantRawText += state.buffer;
+          const parsed = extractEmailDraft(state.assistantRawText, state.assistantMessage.emailDraft);
+          state.assistantMessage.text = parsed.displayText;
+          if (parsed.emailDraft) {
+            state.assistantMessage.emailDraft = parsed.emailDraft;
+          }
           state.buffer = "";
         }
 
@@ -691,7 +816,11 @@ export default function ChatWindow({
           // Always notify parent so background completions are saved to chatMessages
           onNewMessage?.({ ...state.assistantMessage, id: assistantId, chatId: targetChatId });
           if (isActiveChat) {
-            setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, text: state.assistantMessage.text } : m));
+            setMessages(prev => prev.map(m => (
+              m.id === assistantId
+                ? { ...m, text: state.assistantMessage.text, emailDraft: state.assistantMessage.emailDraft }
+                : m
+            )));
           }
         }
 
@@ -775,9 +904,18 @@ export default function ChatWindow({
         if (!state.receivedFirstMessage) {
           state.receivedFirstMessage = true;
           const existing = messages.find(m => m.id === assistantId);
+          state.assistantRawText = state.buffer;
+          const parsed = extractEmailDraft(state.assistantRawText, existing?.emailDraft);
           state.assistantMessage = existing
-            ? { ...existing, text: state.buffer }
-            : { id: assistantId, role: "assistant", text: state.buffer };
+            ? { ...existing, text: parsed.displayText, emailDraft: parsed.emailDraft ?? existing.emailDraft }
+            : {
+                id: assistantId,
+                role: "assistant",
+                text: parsed.displayText,
+                emailDraft: parsed.emailDraft,
+                emailDraftDismissed: false,
+                emailSent: false,
+              };
 
           setMessages(prev => {
             if (existing) return prev.map(m => m.id === assistantId ? state.assistantMessage : m);
@@ -791,8 +929,17 @@ export default function ChatWindow({
           onNewMessage?.({ ...state.assistantMessage, chatId: targetChatId });
         } else if (now - state.lastUpdateTime > 80 || state.buffer.length > 50) {
           if (state.assistantMessage) {
-            state.assistantMessage.text += state.buffer;
-            setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, text: state.assistantMessage.text } : m));
+            state.assistantRawText += state.buffer;
+            const parsed = extractEmailDraft(state.assistantRawText, state.assistantMessage.emailDraft);
+            state.assistantMessage.text = parsed.displayText;
+            if (parsed.emailDraft) {
+              state.assistantMessage.emailDraft = parsed.emailDraft;
+            }
+            setMessages(prev => prev.map(m => (
+              m.id === assistantId
+                ? { ...m, text: state.assistantMessage.text, emailDraft: state.assistantMessage.emailDraft }
+                : m
+            )));
             state.buffer = "";
             state.lastUpdateTime = now;
             state.lastNotifiedTextLength = state.assistantMessage.text.length;
@@ -801,9 +948,23 @@ export default function ChatWindow({
       } else {
         // Background mode — chat is not currently visible
         if (state.assistantMessage) {
-          state.assistantMessage.text += state.buffer;
+          state.assistantRawText += state.buffer;
+          const parsed = extractEmailDraft(state.assistantRawText, state.assistantMessage.emailDraft);
+          state.assistantMessage.text = parsed.displayText;
+          if (parsed.emailDraft) {
+            state.assistantMessage.emailDraft = parsed.emailDraft;
+          }
         } else if (state.buffer.length > 0) {
-          state.assistantMessage = { id: assistantId, role: "assistant", text: state.buffer };
+          state.assistantRawText = state.buffer;
+          const parsed = extractEmailDraft(state.assistantRawText);
+          state.assistantMessage = {
+            id: assistantId,
+            role: "assistant",
+            text: parsed.displayText,
+            emailDraft: parsed.emailDraft,
+            emailDraftDismissed: false,
+            emailSent: false,
+          };
         }
         state.buffer = "";
       }
@@ -856,14 +1017,14 @@ export default function ChatWindow({
     };
 
     es.onopen = () => console.log("🔗 SSE opened:", targetChatId);
-  }, [onNewMessage, onSetLoading, messages, selectedAgent, selectedModel, flushChatStateToParent, notifyMessage]);
+  }, [extractEmailDraft, onNewMessage, onSetLoading, messages, selectedAgent, selectedModel, flushChatStateToParent, notifyMessage]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!isLoading && !isLiveUpdatesActive) sendMessage();
+      if (!isLoading && !isLiveUpdatesActive && !isSendingDraftEmail) sendMessage();
     }
-  }, [isLoading, isLiveUpdatesActive, sendMessage]);
+  }, [isLoading, isLiveUpdatesActive, isSendingDraftEmail, sendMessage]);
 
   const handlePromptClick = useCallback((prompt) => {
     setInput(prompt);
@@ -989,6 +1150,30 @@ return (
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
                               </svg>
                             </button>
+                          </div>
+                        )}
+                        {m.role === "assistant" && m.emailDraft && !m.emailDraftDismissed && !m.emailSent && (
+                          <div className="mt-4 flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => handleSendDraftEmail(m.id, m.emailDraft)}
+                              disabled={isSendingDraftEmail}
+                              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                                isSendingDraftEmail
+                                  ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+                                  : "bg-purple-600 text-white hover:bg-purple-700"
+                              }`}
+                            >
+                              <span>Send Email</span>
+                            </button>
+                            <span className="text-xs text-gray-500">
+                              {isSendingDraftEmail ? "Sending email..." : "Send this drafted email immediately."}
+                            </span>
+                          </div>
+                        )}
+                        {m.role === "assistant" && m.emailSent && (
+                          <div className="mt-4 inline-flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 border border-green-200">
+                            <span>Email sent successfully.</span>
                           </div>
                         )}
                         {m.files && m.files.length > 0 && (
@@ -1132,7 +1317,7 @@ return (
               }`}
               placeholder={isLiveUpdatesActive ? "Live updates in progress... (click Stop button above)" : "Message AI Assistant..."}
               rows="1"
-              disabled={isLoading || isAgentDeactivated || isLiveUpdatesActive}
+              disabled={isLoading || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
             />
 
             <button
@@ -1163,14 +1348,14 @@ return (
                   isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
                 }`}
                 title="Attach files"
-                disabled={isLiveUpdatesActive}
+                disabled={isLiveUpdatesActive || isSendingDraftEmail}
               >
                 <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
               </button>
 
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" multiple disabled={isLiveUpdatesActive} />
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" multiple disabled={isLiveUpdatesActive || isSendingDraftEmail} />
 
               {!selectedAgent ? (
                 <button
@@ -1180,7 +1365,7 @@ return (
                     isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
                   }`}
                   title="Change AI model"
-                  disabled={isLiveUpdatesActive}
+                  disabled={isLiveUpdatesActive || isSendingDraftEmail}
                 >
                   <span className="text-xs sm:text-sm flex-shrink-0">{getCurrentModel()?.icon}</span>
                   <span className="hidden sm:inline truncate max-w-[80px] lg:max-w-none">{getCurrentModel()?.name}</span>
@@ -1210,13 +1395,13 @@ return (
             <button
               type="button"
               onClick={sendMessage}
-              disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isAgentDeactivated || isLiveUpdatesActive}
+              disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
               className={`flex items-center justify-center p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0 ${
-                isAgentDeactivated || isLiveUpdatesActive
+                isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
               }`}
-              title={isLiveUpdatesActive ? "Live updates in progress" : (isAgentDeactivated ? `${selectedAgent?.name} is deactivated` : "Send message")}
+              title={isSendingDraftEmail ? "Sending drafted email..." : (isLiveUpdatesActive ? "Live updates in progress" : (isAgentDeactivated ? `${selectedAgent?.name} is deactivated` : "Send message"))}
             >
               <Image src="/send.png" alt="Send" width={14} height={14} className="brightness-0 invert sm:w-4 sm:h-4" />
             </button>
