@@ -12,6 +12,7 @@ import { toast } from 'react-toastify';
 import { useNotifications } from '../../utils/useNotifications';
 import rehypeRaw from 'rehype-raw';
 import { MODEL_OPTIONS, getDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
+import { getAccessToken } from "../../utils/auth";
 
 export default function ChatWindow({
   chatId,
@@ -83,7 +84,8 @@ export default function ChatWindow({
 
   const buildComsatsUrl = useCallback((text, chatIdForRequest) => {
   const encodedChatId = encodeURIComponent(chatIdForRequest || '');
-  return `http://127.0.0.1:8000/api/comsats_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
+  const accessToken = encodeURIComponent(getAccessToken() || '');
+  return `http://127.0.0.1:8000/api/comsats_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}&access_token=${accessToken}`;
   }, []);
 
   const buildCricketUrl = useCallback((text, chatIdForRequest) => {
