@@ -1117,31 +1117,13 @@ return (
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              className={`flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none ${
+              className={`flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none scrollbar-thin ${
                 isAgentDeactivated || isLiveUpdatesActive ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
               }`}
               placeholder={isLiveUpdatesActive ? "Live updates in progress... (click Stop button above)" : "Message AI Assistant..."}
               rows="1"
               disabled={isLoading || isAgentDeactivated || isLiveUpdatesActive}
             />
-
-            <button
-              type="button"
-              onClick={toggleInputExpansion}
-              className={`hidden xs:flex flex-shrink-0 p-1.5 sm:p-2 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors ${
-                isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
-              }`}
-              title={isInputExpanded ? "Collapse" : "Expand"}
-              disabled={isLiveUpdatesActive}
-            >
-              <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                {isInputExpanded ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
-                )}
-              </svg>
-            </button>
           </div>
 
           <div className="flex items-center justify-between">
@@ -1197,19 +1179,40 @@ return (
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={sendMessage}
-              disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isAgentDeactivated || isLiveUpdatesActive}
-              className={`flex items-center justify-center p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0 ${
-                isAgentDeactivated || isLiveUpdatesActive
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
-              }`}
-              title={isLiveUpdatesActive ? "Live updates in progress" : (isAgentDeactivated ? `${selectedAgent?.name} is deactivated` : "Send message")}
-            >
-              <Image src="/send.png" alt="Send" width={14} height={14} className="brightness-0 invert sm:w-4 sm:h-4" />
-            </button>
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <button
+                type="button"
+                onClick={toggleInputExpansion}
+                className={`p-1.5 sm:p-2 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors ${
+                  isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
+                }`}
+                title={isInputExpanded ? "Collapse input" : "Expand input"}
+                disabled={isLiveUpdatesActive}
+                aria-label={isInputExpanded ? "Collapse input" : "Expand input"}
+              >
+                <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  {isInputExpanded ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                  )}
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={sendMessage}
+                disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isAgentDeactivated || isLiveUpdatesActive}
+                className={`flex items-center justify-center p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0 ${
+                  isAgentDeactivated || isLiveUpdatesActive
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+                }`}
+                title={isLiveUpdatesActive ? "Live updates in progress" : (isAgentDeactivated ? `${selectedAgent?.name} is deactivated` : "Send message")}
+              >
+                <Image src="/send.png" alt="Send" width={14} height={14} className="brightness-0 invert sm:w-4 sm:h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
