@@ -1,4 +1,6 @@
+import json
 import os
+import re
 from datetime import datetime
 from threading import Lock
 
@@ -11,6 +13,8 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from .gmail import build_gmail_oauth_url, is_gmail_connected, send_gmail_email
+
+EMAIL_DRAFT_TAG = "[EMAIL_DRAFT]"
 
 llm = ChatOpenAI(
     model="x-ai/grok-4.1-fast",
@@ -34,6 +38,11 @@ Rules:
 - Before sending, make sure the final email has a clear recipient, subject, and body.
 - If Gmail is not connected, guide the user to connect it using the link returned by the tool.
 - Only send to official COMSATS addresses ending in @cuilahore.edu.pk.
+- When the user asks for an email draft but has not explicitly confirmed sending, produce the draft in this exact format:
+  To: recipient@cuilahore.edu.pk
+  Subject: Short subject
+  Body:
+  Full email body here
 """
 
 prompt = ChatPromptTemplate.from_messages([
@@ -91,6 +100,33 @@ def build_email_tool_for_user(user):
     )
 
 
+def extract_email_draft(answer_text: str):
+    normalized = answer_text.replace("**", "").strip()
+    match = re.search(
+        r"(?:^|\n)(?:to|recipient)\s*:\s*(?P<recipient>[^\n]+)\n+subject\s*:\s*(?P<subject>[^\n]+)\n+body\s*:\s*(?P<body>.+)$",
+        normalized,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+
+    recipient_email = match.group("recipient").strip()
+    subject = match.group("subject").strip()
+    body = match.group("body").strip()
+
+    if not recipient_email or not subject or not body:
+        return None
+
+    if "@cuilahore.edu.pk" not in recipient_email.lower():
+        return None
+
+    return {
+        "recipient_email": recipient_email,
+        "subject": subject,
+        "body": body,
+    }
+
+
 def get_comsats_response(query: str, thread_id="comsats_agent_chat", user=None):
     try:
         chat_history = get_or_create_chat_history(thread_id)
@@ -111,6 +147,10 @@ def get_comsats_response(query: str, thread_id="comsats_agent_chat", user=None):
             "agent_scratchpad": [],
         })
         answer_text = result["output"].strip()
+        if "email sent successfully" not in answer_text.lower():
+            draft = extract_email_draft(answer_text)
+            if draft:
+                answer_text = f"{answer_text}\n\n{EMAIL_DRAFT_TAG}{json.dumps(draft)}"
         chat_history.add_ai_message(answer_text)
         return answer_text
     except Exception as e:

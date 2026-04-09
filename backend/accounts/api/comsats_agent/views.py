@@ -1,4 +1,5 @@
 import time
+import json
 
 from django.http import HttpResponseRedirect, JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -7,7 +8,13 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 from .agent import get_comsats_response, reset_comsats_chat
-from .gmail import build_gmail_result_redirect, handle_gmail_oauth_callback
+from .gmail import (
+    build_gmail_oauth_url,
+    build_gmail_result_redirect,
+    handle_gmail_oauth_callback,
+    is_gmail_connected,
+    send_gmail_email,
+)
 
 
 def authenticate_query_token(request):
@@ -16,6 +23,23 @@ def authenticate_query_token(request):
         return None
 
     authenticator = JWTAuthentication()
+    try:
+        validated = authenticator.get_validated_token(raw_token)
+        return authenticator.get_user(validated)
+    except (InvalidToken, TokenError, Exception):
+        return None
+
+
+def authenticate_header_token(request):
+    authenticator = JWTAuthentication()
+    header = authenticator.get_header(request)
+    if not header:
+        return None
+
+    raw_token = authenticator.get_raw_token(header)
+    if not raw_token:
+        return None
+
     try:
         validated = authenticator.get_validated_token(raw_token)
         return authenticator.get_user(validated)
@@ -66,6 +90,49 @@ def comsats_reset(request):
         return JsonResponse({"status": "success", "message": "COMSATS chat reset"})
     except Exception as e:
         return JsonResponse({"status": "error", "message": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def comsats_send_email(request):
+    user = authenticate_header_token(request)
+    if not user:
+        return JsonResponse({"error": "Authentication required."}, status=401)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    recipient_email = (payload.get("recipient_email") or "").strip()
+    subject = (payload.get("subject") or "").strip()
+    body = (payload.get("body") or "").strip()
+
+    if not recipient_email or not subject or not body:
+        return JsonResponse({"error": "recipient_email, subject, and body are required."}, status=400)
+
+    if not is_gmail_connected(user):
+        connect_url = build_gmail_oauth_url(user)
+        return JsonResponse(
+            {
+                "error": "Gmail is not connected for this user.",
+                "requires_gmail_connect": True,
+                "connect_url": connect_url,
+            },
+            status=409,
+        )
+
+    try:
+        payload = send_gmail_email(user, recipient_email, subject, body)
+        return JsonResponse(
+            {
+                "status": "success",
+                "message": f"Email sent to {recipient_email}.",
+                "gmail_message_id": payload.get("id"),
+            }
+        )
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
 
 
 @csrf_exempt
