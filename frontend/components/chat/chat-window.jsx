@@ -1374,19 +1374,65 @@ return (
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={sendMessage}
-              disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
-              className={`flex items-center justify-center p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0 ${
-                isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
-              }`}
-              title={isSendingDraftEmail ? "Sending drafted email..." : (isLiveUpdatesActive ? "Live updates in progress" : (isAgentDeactivated ? `${selectedAgent?.name} is deactivated` : "Send message"))}
-            >
-              <Image src="/send.png" alt="Send" width={14} height={14} className="brightness-0 invert sm:w-4 sm:h-4" />
-            </button>
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <button
+  type="button"
+  onClick={toggleInputExpansion}
+  disabled={isLoading || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
+  className={`p-1.5 sm:p-2 rounded-lg transition-colors duration-150 ${
+    isLoading || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail
+      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+      : 'bg-transparent text-gray-400 border border-transparent hover:text-purple-600 hover:bg-purple-50 hover:border-purple-200'
+  }`}
+  title={isInputExpanded ? "Collapse input" : "Expand input"}
+>
+    {isInputExpanded ? (
+      // Collapse icon - up arrow
+      <svg 
+        className="h-3.5 w-3.5 sm:h-4 sm:w-4" 
+        fill="none" 
+        stroke="currentColor" 
+        viewBox="0 0 24 24"
+      >
+        <path 
+          strokeLinecap="round" 
+          strokeLinejoin="round" 
+          strokeWidth={2} 
+          d="M5 15l7-7 7 7" 
+        />
+      </svg>
+    ) : (
+      // Expand icon - down arrow
+      <svg 
+        className="h-3.5 w-3.5 sm:h-4 sm:w-4" 
+        fill="none" 
+        stroke="currentColor" 
+        viewBox="0 0 24 24"
+      >
+        <path 
+          strokeLinecap="round" 
+          strokeLinejoin="round" 
+          strokeWidth={2} 
+          d="M19 9l-7 7-7-7" 
+        />
+      </svg>
+    )}
+  </button>
+
+              <button
+                type="button"
+                onClick={sendMessage}
+                disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
+                className={`flex items-center justify-center p-1.5 sm:p-2 rounded-lg transition-all duration-200 disabled:opacity-50 flex-shrink-0 ${
+                  isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+                }`}
+                title={isSendingDraftEmail ? "Sending drafted email..." : (isLiveUpdatesActive ? "Live updates in progress" : (isAgentDeactivated ? `${selectedAgent?.name} is deactivated` : "Send message"))}
+              >
+                <Image src="/send.png" alt="Send" width={14} height={14} className="brightness-0 invert sm:w-4 sm:h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
