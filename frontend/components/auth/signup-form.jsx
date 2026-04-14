@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { API_URL, setTokens } from "../../utils/auth";
+import { getPendingBillingPlan } from "../../utils/billing";
 
 export default function SignupForm() {
   const router = useRouter();
@@ -81,9 +82,9 @@ export default function SignupForm() {
           text: "✅ Registration successful! Redirecting to chat...",
         });
         
-        // Redirect to chat after successful signup
+        const pendingBillingPlan = getPendingBillingPlan();
         setTimeout(() => {
-          router.push("/chat");
+          router.push(pendingBillingPlan ? "/pricing" : "/chat");
         }, 1500);
       } else {
         // Handle different error formats from Django

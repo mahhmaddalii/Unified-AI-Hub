@@ -1,5 +1,7 @@
 // frontend/utils/auth.js
 
+import { clearBillingCache } from "./billing";
+
 export const API_URL = "http://127.0.0.1:8000"; // Django backend
 
 // Save tokens to localStorage
@@ -22,6 +24,7 @@ export const logoutUser = () => {
   localStorage.removeItem("accessToken");
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("rememberMe");
+  clearBillingCache();
   window.location.href = "/login";
 };
 

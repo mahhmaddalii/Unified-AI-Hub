@@ -57,3 +57,34 @@ class GmailOAuthCredential(models.Model):
 
     def __str__(self):
         return self.google_email or f"Gmail OAuth for {self.user.email}"
+
+
+class BillingProfile(models.Model):
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="billing_profile",
+    )
+    stripe_customer_id = models.CharField(max_length=255, blank=True, default="")
+    stripe_subscription_id = models.CharField(max_length=255, blank=True, default="")
+    stripe_checkout_session_id = models.CharField(max_length=255, blank=True, default="")
+    plan_name = models.CharField(max_length=50, default="free")
+    billing_interval = models.CharField(max_length=20, default="month")
+    billing_source = models.CharField(max_length=20, blank=True, default="")
+    billing_status = models.CharField(max_length=50, default="free")
+    current_period_end = models.DateTimeField(blank=True, null=True)
+    last_verified_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def is_paid(self):
+        active_statuses = {"active", "trialing"}
+        if self.billing_status not in active_statuses:
+            return False
+        if self.current_period_end and self.current_period_end <= timezone.now():
+            return False
+        return True
+
+    def __str__(self):
+        return f"Billing for {self.user.email}"

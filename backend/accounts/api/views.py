@@ -20,6 +20,8 @@ from dj_rest_auth.registration.views import SocialLoginView
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 
+from accounts.api.billing.services import get_billing_snapshot_for_user
+
 
 User = get_user_model()
 
@@ -165,7 +167,8 @@ def me_view(request):
     return Response({
         "name": name,
         "email": user.email,
-        "avatarUrl": avatar_url
+        "avatarUrl": avatar_url,
+        "billing": get_billing_snapshot_for_user(user, sync_remote=True),
     })
 
 

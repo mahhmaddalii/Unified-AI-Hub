@@ -178,6 +178,10 @@ EMAIL_HOST_USER = "maahammadalyy@gmail.com"
 EMAIL_HOST_PASSWORD = "honhysbworqknsnb"   # App password
 DEFAULT_FROM_EMAIL = "no-reply@yourdomain.com"
 
+FRONTEND_APP_URL = os.getenv("FRONTEND_APP_URL", "http://127.0.0.1:3000")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PRO_MONTHLY_PRICE_ID = os.getenv("STRIPE_PRO_MONTHLY_PRICE_ID", "")
+
 
 CACHES = {
     "default": {
