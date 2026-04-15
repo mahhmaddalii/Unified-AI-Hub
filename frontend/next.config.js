@@ -6,6 +6,11 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+
+  allowedDevOrigins: [
+    'http://127.0.0.1:3000',
+    'http://localhost:3000',
+  ],
 };
 
 module.exports = withBundleAnalyzer(nextConfig);

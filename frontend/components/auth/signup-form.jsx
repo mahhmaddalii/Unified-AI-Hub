@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import { API_URL, setTokens } from "../../utils/auth";
 import { getPendingBillingPlan } from "../../utils/billing";
 
@@ -191,7 +192,7 @@ export default function SignupForm() {
           onClick={() => setShowPassword(!showPassword)}
         className="absolute right-4 top-9 text-sm text-gray-500 transition-colors duration-300 hover:text-gray-700"
           >
-          {showPassword ? "Hide" : "Show"}
+          {showPassword ? <EyeSlashIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
         </button>
       </div>
 
@@ -214,7 +215,7 @@ export default function SignupForm() {
           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
           className="absolute right-4 top-9 text-sm text-gray-500 transition-colors duration-300 hover:text-gray-700"
           >
-          {showConfirmPassword ? "Hide" : "Show"}
+          {showConfirmPassword ? <EyeSlashIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
         </button>
 
         {errors.confirmPassword && (

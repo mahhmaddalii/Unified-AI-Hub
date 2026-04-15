@@ -62,7 +62,9 @@ export default function PricingPage() {
       if (!getAccessToken()) return;
 
       try {
-        const response = await fetchWithAuth(`${API_URL}/api/billing/status/`, { method: "GET" });
+        const response = await fetchWithAuth(`${API_URL}/api/billing/status/`, {
+          method: "GET",
+        });
         if (!response.ok) return;
 
         const data = await response.json();
@@ -107,21 +109,24 @@ export default function PricingPage() {
   const testimonials = [
     {
       id: 1,
-      content: "The AI assistant helped me write code 3x faster. It's like having a senior developer by my side!",
+      content:
+        "The AI assistant helped me write code 3x faster. It's like having a senior developer by my side!",
       author: "Sarah Chen",
       role: "Software Engineer",
       emoji: "👩‍💻",
     },
     {
       id: 2,
-      content: "I've integrated the API into our customer service platform. Response times improved by 65% instantly.",
+      content:
+        "I've integrated the API into our customer service platform. Response times improved by 65% instantly.",
       author: "Michael Torres",
       role: "Product Manager",
       emoji: "🚀",
     },
     {
       id: 3,
-      content: "The document analysis feature saved my team 20 hours per week on research. Absolutely game-changing.",
+      content:
+        "The document analysis feature saved my team 20 hours per week on research. Absolutely game-changing.",
       author: "Jessica Williams",
       role: "Research Lead",
       emoji: "📊",
@@ -148,10 +153,16 @@ export default function PricingPage() {
     setIsStartingCheckout(true);
 
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/billing/create-checkout-session/`, {
-        method: "POST",
-        body: JSON.stringify({ plan: selectedPlan }),
-      });
+      const response = await fetchWithAuth(
+        `${API_URL}/api/billing/create-checkout-session/`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            plan: selectedPlan,
+            frontendOrigin: window.location.origin,
+          }),
+        },
+      );
       const data = await response.json();
 
       if (!response.ok) {
@@ -204,8 +215,18 @@ export default function PricingPage() {
             className="inline-flex items-center text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 mb-6 transition-all duration-300 hover:-translate-x-1 opacity-0 animate-fade-in"
             style={{ animationDelay: "0.1s" }}
           >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            <svg
+              className="w-5 h-5 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M10 19l-7-7m0 0l7-7m-7 7h18"
+              />
             </svg>
             Back to Home
           </button>
@@ -221,17 +242,20 @@ export default function PricingPage() {
             className="text-lg text-gray-600 dark:text-gray-300 max-w-2xl mx-auto transform transition-all duration-700 ease-out opacity-0 translate-y-6 delay-150"
             style={isVisible ? { opacity: 1, transform: "translateY(0)" } : {}}
           >
-            Choose the plan that works best for you. All plans include full access to our AI platform.
+            Choose the plan that works best for you. All plans include full
+            access to our AI platform.
           </p>
           {billingMessage && (
-            <div className="mt-4 inline-flex items-center rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm text-purple-700">
-              {billingMessage}
+            <div className="flex justify-center mt-8">
+              <div className="mt-5 inline-flex items-center rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm text-purple-700">
+                {billingMessage}
+              </div>
             </div>
           )}
           {billing?.currentPeriodEnd && (
             <div className="mt-4 inline-flex items-center rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700">
-              {isPaid ? "Pro access is active" : "Latest billing status loaded"} until{" "}
-              {new Date(billing.currentPeriodEnd).toLocaleDateString()}
+              {isPaid ? "Pro access is active" : "Latest billing status loaded"}{" "}
+              until {new Date(billing.currentPeriodEnd).toLocaleDateString()}
             </div>
           )}
         </div>
@@ -275,40 +299,96 @@ export default function PricingPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 border border-gray-200 dark:border-gray-700 transition-all duration-500 hover:shadow-xl animate-fade-in-up delay-300">
-            <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Free Plan</h3>
-            <p className="text-gray-600 dark:text-gray-300 mb-6">Perfect for getting started</p>
+            <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Free Plan
+            </h3>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+              Perfect for getting started
+            </p>
 
             <div className="mb-8">
               <div className="flex items-end justify-center">
-                <span className="text-4xl font-bold text-gray-900 dark:text-white">$0</span>
-                <span className="text-gray-500 dark:text-gray-400 ml-2 mb-1">forever</span>
+                <span className="text-4xl font-bold text-gray-900 dark:text-white">
+                  $0
+                </span>
+                <span className="text-gray-500 dark:text-gray-400 ml-2 mb-1">
+                  forever
+                </span>
               </div>
             </div>
 
             <ul className="space-y-4 mb-8">
               <li className="flex items-start transition-all duration-300 hover:translate-x-1">
-                <svg className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                <svg
+                  className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
-                <span className="text-gray-700 dark:text-gray-300">500 tokens per month</span>
+                <span className="text-gray-700 dark:text-gray-300">
+                  500 tokens per month
+                </span>
               </li>
               <li className="flex items-start transition-all duration-300 hover:translate-x-1 delay-75">
-                <svg className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                <svg
+                  className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
-                <span className="text-gray-700 dark:text-gray-300">1 chatbot</span>
+                <span className="text-gray-700 dark:text-gray-300">
+                  1 chatbot
+                </span>
               </li>
               <li className="flex items-start transition-all duration-300 hover:translate-x-1 delay-100">
-                <svg className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                <svg
+                  className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
-                <span className="text-gray-700 dark:text-gray-300">10 stored chats</span>
+                <span className="text-gray-700 dark:text-gray-300">
+                  10 stored chats
+                </span>
               </li>
               <li className="flex items-start transition-all duration-300 hover:translate-x-1 delay-150">
-                <svg className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                <svg
+                  className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
-                <span className="text-gray-700 dark:text-gray-300">Basic model access</span>
+                <span className="text-gray-700 dark:text-gray-300">
+                  Basic model access
+                </span>
               </li>
             </ul>
 
@@ -323,8 +403,12 @@ export default function PricingPage() {
             </div>
 
             <div className="p-8">
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Pro Plan</h3>
-              <p className="text-gray-600 dark:text-gray-300 mb-6">Everything you need to maximize productivity</p>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Pro Plan
+              </h3>
+              <p className="text-gray-600 dark:text-gray-300 mb-6">
+                Everything you need to maximize productivity
+              </p>
 
               <div className="mb-8">
                 <div className="flex items-end justify-center">
@@ -344,11 +428,27 @@ export default function PricingPage() {
 
               <ul className="space-y-4 mb-8">
                 {proPlanFeatures.map((feature, index) => (
-                  <li key={index} className="flex items-start transition-all duration-300 hover:translate-x-1" style={{ transitionDelay: `${index * 50}ms` }}>
-                    <svg className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                  <li
+                    key={index}
+                    className="flex items-start transition-all duration-300 hover:translate-x-1"
+                    style={{ transitionDelay: `${index * 50}ms` }}
+                  >
+                    <svg
+                      className="h-6 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
-                    <span className="text-gray-700 dark:text-gray-300">{feature}</span>
+                    <span className="text-gray-700 dark:text-gray-300">
+                      {feature}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -369,7 +469,9 @@ export default function PricingPage() {
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 mb-16 animate-fade-in delay-500">
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-8 text-center">Why Users Love Pro</h3>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-8 text-center">
+            Why Users Love Pro
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {testimonials.map((testimonial, index) => (
               <div
@@ -378,10 +480,16 @@ export default function PricingPage() {
                 style={{ animationDelay: `${index * 150 + 600}ms` }}
               >
                 <div className="text-3xl mb-4">{testimonial.emoji}</div>
-                <p className="text-gray-700 dark:text-gray-300 italic mb-4">"{testimonial.content}"</p>
+                <p className="text-gray-700 dark:text-gray-300 italic mb-4">
+                  "{testimonial.content}"
+                </p>
                 <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{testimonial.author}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{testimonial.role}</p>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    {testimonial.author}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {testimonial.role}
+                  </p>
                 </div>
               </div>
             ))}
@@ -389,27 +497,49 @@ export default function PricingPage() {
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 animate-fade-in delay-700">
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-8 text-center">Frequently Asked Questions</h3>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-8 text-center">
+            Frequently Asked Questions
+          </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-gray-50 dark:bg-gray-700/50 p-5 rounded-xl transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">What payment methods do you accept?</h4>
-              <p className="text-gray-600 dark:text-gray-300">Stripe test mode accepts dummy cards for this local development flow.</p>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
+                What payment methods do you accept?
+              </h4>
+              <p className="text-gray-600 dark:text-gray-300">
+                Stripe test mode accepts dummy cards for this local development
+                flow.
+              </p>
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-700/50 p-5 rounded-xl transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Can I cancel anytime?</h4>
-              <p className="text-gray-600 dark:text-gray-300">Yes. This version focuses on local test activation, and cancel management can be added next.</p>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
+                Can I cancel anytime?
+              </h4>
+              <p className="text-gray-600 dark:text-gray-300">
+                Yes. This version focuses on local test activation, and cancel
+                management can be added next.
+              </p>
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-700/50 p-5 rounded-xl transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Is there a free trial?</h4>
-              <p className="text-gray-600 dark:text-gray-300">The current flow is test mode only, so no real money is charged while you validate billing behavior.</p>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
+                Is there a free trial?
+              </h4>
+              <p className="text-gray-600 dark:text-gray-300">
+                The current flow is test mode only, so no real money is charged
+                while you validate billing behavior.
+              </p>
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-700/50 p-5 rounded-xl transition-all duration-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">How do renewals work?</h4>
-              <p className="text-gray-600 dark:text-gray-300">Stripe stores the test payment method and reuses it for monthly renewals on the same subscription.</p>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
+                How do renewals work?
+              </h4>
+              <p className="text-gray-600 dark:text-gray-300">
+                Stripe stores the test payment method and reuses it for monthly
+                renewals on the same subscription.
+              </p>
             </div>
           </div>
         </div>

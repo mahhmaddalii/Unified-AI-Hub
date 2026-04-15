@@ -14,6 +14,10 @@ class StripeServiceError(Exception):
     pass
 
 
+class StripePendingError(StripeServiceError):
+    pass
+
+
 def stripe_is_configured():
     return bool(settings.STRIPE_SECRET_KEY and settings.STRIPE_PRO_MONTHLY_PRICE_ID)
 
@@ -65,6 +69,30 @@ def billing_snapshot(profile):
         "stripeSubscriptionId": profile.stripe_subscription_id or None,
         "lastVerifiedAt": profile.last_verified_at.isoformat() if profile.last_verified_at else None,
     }
+
+
+def session_belongs_to_user(session, user, profile):
+    session_customer_id = (session.get("customer") or "").strip()
+    profile_customer_id = (profile.stripe_customer_id or "").strip()
+    session_client_reference = str(session.get("client_reference_id") or "").strip()
+    session_customer_email = (session.get("customer_email") or "").strip().lower()
+    session_metadata = session.get("metadata") or {}
+    metadata_user_id = str(session_metadata.get("user_id") or "").strip()
+    user_email = (user.email or "").strip().lower()
+    user_id = str(user.id)
+
+    # Prefer app-controlled identifiers over customer-id equality because
+    # Stripe can still complete a valid checkout even when the session's
+    # customer id differs from the one we previously stored locally.
+    if session_client_reference and session_client_reference == user_id:
+        return True
+    if metadata_user_id and metadata_user_id == user_id:
+        return True
+    if session_customer_email and user_email and session_customer_email == user_email:
+        return True
+    if profile_customer_id and session_customer_id and profile_customer_id == session_customer_id:
+        return True
+    return False
 
 
 def _apply_subscription_to_profile(profile, subscription, selected_plan=None):
@@ -121,11 +149,35 @@ def ensure_stripe_customer(profile, user):
 
 
 def sync_subscription_from_stripe(profile):
-    if not profile.stripe_subscription_id or not stripe_is_configured():
+    if not stripe_is_configured():
         return profile
 
-    subscription = stripe_request("GET", f"/subscriptions/{profile.stripe_subscription_id}")
-    return _apply_subscription_to_profile(profile, subscription)
+    if profile.stripe_subscription_id:
+        subscription = stripe_request("GET", f"/subscriptions/{profile.stripe_subscription_id}")
+        return _apply_subscription_to_profile(profile, subscription)
+
+    if not profile.stripe_customer_id:
+        return profile
+
+    # Some successful checkouts reach us before we have stored the final
+    # subscription id locally, so recover the newest usable subscription
+    # directly from Stripe using the saved customer id.
+    subscriptions = stripe_request(
+        "GET",
+        "/subscriptions",
+        params={
+            "customer": profile.stripe_customer_id,
+            "status": "all",
+            "limit": 5,
+        },
+    ).get("data", [])
+
+    for subscription in subscriptions:
+        if subscription.get("status") == "incomplete_expired":
+            continue
+        return _apply_subscription_to_profile(profile, subscription)
+
+    return profile
 
 
 def get_billing_snapshot_for_user(user, sync_remote=False):
@@ -136,6 +188,44 @@ def get_billing_snapshot_for_user(user, sync_remote=False):
         except StripeServiceError:
             pass
     return billing_snapshot(profile)
+
+
+def find_subscription_for_checkout_session(session, user):
+    subscription = session.get("subscription")
+    if isinstance(subscription, dict):
+        return subscription
+    if subscription:
+        return stripe_request("GET", f"/subscriptions/{subscription}")
+
+    customer_id = session.get("customer")
+    if not customer_id:
+        return None
+
+    subscriptions = stripe_request(
+        "GET",
+        "/subscriptions",
+        params={
+            "customer": customer_id,
+            "status": "all",
+            "limit": 10,
+        },
+    ).get("data", [])
+
+    for candidate in subscriptions:
+        metadata = candidate.get("metadata") or {}
+        if metadata.get("user_id") == str(user.id):
+            return candidate
+
+    session_created = session.get("created")
+    if session_created:
+        # Fallback for the short window where Stripe has created the
+        # subscription but has not expanded it onto the Checkout Session yet.
+        for candidate in subscriptions:
+            created = candidate.get("created")
+            if created and abs(created - session_created) <= 300:
+                return candidate
+
+    return subscriptions[0] if subscriptions else None
 
 
 def verify_checkout_session_and_sync(profile, user, session_id):
@@ -150,17 +240,21 @@ def verify_checkout_session_and_sync(profile, user, session_id):
     if session.get("mode") != "subscription":
         raise StripeServiceError("This checkout session is not a subscription.")
     if session.get("status") != "complete":
-        raise StripeServiceError("Checkout is not completed yet.")
+        raise StripePendingError("Checkout is still completing. Please wait a moment.")
 
     customer_id = session.get("customer") or profile.stripe_customer_id
-    if profile.stripe_customer_id and customer_id and profile.stripe_customer_id != customer_id:
+    if not session_belongs_to_user(session, user, profile):
         raise StripeServiceError("This checkout session does not belong to the current user.")
-    if session.get("customer_email") and session["customer_email"].lower() != user.email.lower():
-        raise StripeServiceError("This checkout session belongs to a different email address.")
 
-    subscription = session.get("subscription")
-    if not isinstance(subscription, dict):
-        subscription = stripe_request("GET", f"/subscriptions/{subscription}")
+    subscription = find_subscription_for_checkout_session(session, user)
+    if not subscription:
+        raise StripePendingError("Stripe is still preparing the subscription. Please wait a moment.")
+
+    subscription_status = subscription.get("status") or "incomplete"
+    if subscription_status in {"incomplete", "trialing"} and session.get("payment_status") != "paid":
+        raise StripePendingError("Payment is still being processed. Please wait a moment.")
+    if subscription_status == "incomplete_expired":
+        raise StripeServiceError("The subscription payment expired before it could be completed.")
 
     selected_plan = (session.get("metadata") or {}).get("selected_ui_plan") or profile.billing_source or "monthly"
 
