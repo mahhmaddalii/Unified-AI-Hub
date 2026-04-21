@@ -74,6 +74,9 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
   const displayName = user?.name || (userLoading ? "Loading..." : "User");
   const displayEmail = user?.email || "";
   const avatarUrl = user?.avatarUrl || null;
+  const billing = user?.billing || null;
+  const isPaid = Boolean(billing?.isPaid);
+  const planLabel = isPaid ? "Pro Plan" : "Free Plan";
   const initials = getInitials(displayName, displayEmail);
   const selectedModel = MODEL_OPTIONS.find((model) => model.id === defaultModelId) ||
     MODEL_OPTIONS.find((model) => model.id === DEFAULT_MODEL_ID) ||
@@ -144,14 +147,16 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
-                    Pro Plan
+                    {planLabel}
                   </span>
-                  <button 
-                    onClick={handleUpgradePlan}
-                    className="text-xs text-purple-600 hover:text-purple-700 hover:underline"
-                  >
-                    Upgrade
-                  </button>
+                  {!isPaid && (
+                    <button 
+                      onClick={handleUpgradePlan}
+                      className="text-xs text-purple-600 hover:text-purple-700 hover:underline"
+                    >
+                      Upgrade
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

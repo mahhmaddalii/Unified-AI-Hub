@@ -209,6 +209,7 @@ export default function ChatWindow({
         ? {
             ...message,
             emailDraft: existing.emailDraft ?? message.emailDraft,
+            emailDraftReady: existing.emailDraftReady ?? message.emailDraftReady,
             emailDraftDismissed: existing.emailDraftDismissed ?? message.emailDraftDismissed,
             emailSent: existing.emailSent ?? message.emailSent,
           }
@@ -813,12 +814,20 @@ export default function ChatWindow({
         }
 
         if (state.assistantMessage) {
+          if (state.assistantMessage.emailDraft) {
+            state.assistantMessage.emailDraftReady = true;
+          }
           // Always notify parent so background completions are saved to chatMessages
           onNewMessage?.({ ...state.assistantMessage, id: assistantId, chatId: targetChatId });
           if (isActiveChat) {
             setMessages(prev => prev.map(m => (
               m.id === assistantId
-                ? { ...m, text: state.assistantMessage.text, emailDraft: state.assistantMessage.emailDraft }
+                ? {
+                    ...m,
+                    text: state.assistantMessage.text,
+                    emailDraft: state.assistantMessage.emailDraft,
+                    emailDraftReady: state.assistantMessage.emailDraftReady,
+                  }
                 : m
             )));
           }
@@ -907,12 +916,18 @@ export default function ChatWindow({
           state.assistantRawText = state.buffer;
           const parsed = extractEmailDraft(state.assistantRawText, existing?.emailDraft);
           state.assistantMessage = existing
-            ? { ...existing, text: parsed.displayText, emailDraft: parsed.emailDraft ?? existing.emailDraft }
+            ? {
+                ...existing,
+                text: parsed.displayText,
+                emailDraft: parsed.emailDraft ?? existing.emailDraft,
+                emailDraftReady: false,
+              }
             : {
                 id: assistantId,
                 role: "assistant",
                 text: parsed.displayText,
                 emailDraft: parsed.emailDraft,
+                emailDraftReady: false,
                 emailDraftDismissed: false,
                 emailSent: false,
               };
@@ -937,7 +952,12 @@ export default function ChatWindow({
             }
             setMessages(prev => prev.map(m => (
               m.id === assistantId
-                ? { ...m, text: state.assistantMessage.text, emailDraft: state.assistantMessage.emailDraft }
+                ? {
+                    ...m,
+                    text: state.assistantMessage.text,
+                    emailDraft: state.assistantMessage.emailDraft,
+                    emailDraftReady: false,
+                  }
                 : m
             )));
             state.buffer = "";
@@ -962,6 +982,7 @@ export default function ChatWindow({
             role: "assistant",
             text: parsed.displayText,
             emailDraft: parsed.emailDraft,
+            emailDraftReady: false,
             emailDraftDismissed: false,
             emailSent: false,
           };
@@ -1152,7 +1173,7 @@ return (
                             </button>
                           </div>
                         )}
-                        {m.role === "assistant" && m.emailDraft && !m.emailDraftDismissed && !m.emailSent && (
+                        {m.role === "assistant" && m.emailDraft && m.emailDraftReady && !m.emailDraftDismissed && !m.emailSent && (
                           <div className="mt-4 flex items-center gap-3">
                             <button
                               type="button"

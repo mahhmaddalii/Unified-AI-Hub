@@ -18,4 +18,5 @@ urlpatterns = [
     path('cricket_agent/', include('accounts.api.cricket_agent.urls')),
     path('politics_agent/', include('accounts.api.politics_agent.urls')),
     path('comsats_agent/', include('accounts.api.comsats_agent.urls')),
+    path('billing/', include('accounts.api.billing.urls')),
 ]

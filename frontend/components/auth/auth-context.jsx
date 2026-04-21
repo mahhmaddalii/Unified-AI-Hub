@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { API_URL, fetchWithAuth, getAccessToken, logoutUser } from "../../utils/auth";
+import { clearBillingCache, setBillingCache } from "../../utils/billing";
 
 const AuthContext = createContext(null);
 
@@ -13,6 +14,7 @@ export function AuthProvider({ children }) {
     const token = getAccessToken();
     if (!token) {
       setUser(null);
+      clearBillingCache();
       setLoading(false);
       return;
     }
@@ -21,6 +23,7 @@ export function AuthProvider({ children }) {
       const res = await fetchWithAuth(`${API_URL}/api/me/`, { method: "GET" });
       if (res.ok) {
         const data = await res.json();
+        setBillingCache(data?.billing || null);
         setUser(data);
       } else if (res.status === 401) {
         logoutUser();
@@ -40,6 +43,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     logoutUser();
+    clearBillingCache();
     setUser(null);
   }, []);
 

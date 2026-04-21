@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import { API_URL, checkActiveSession, setTokens } from "../../utils/auth";
+import { getPendingBillingPlan } from "../../utils/billing";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -51,13 +52,14 @@ export default function LoginForm() {
           access: accessToken, 
           refresh: refreshToken 
         });
+        const pendingBillingPlan = getPendingBillingPlan();
         setMessage(`✅ Google login successful! Welcome ${email}. Redirecting...`);
         
         // Clean up URL
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
         
-        setTimeout(() => router.push("/chat"), 1000);
+        setTimeout(() => router.push(pendingBillingPlan ? "/pricing" : "/chat"), 1000);
       }
     };
 
@@ -103,8 +105,9 @@ export default function LoginForm() {
 
       if (response.ok && data.access && data.refresh) {
         setTokens({ access: data.access, refresh: data.refresh });
+        const pendingBillingPlan = getPendingBillingPlan();
         setMessage("✅ Google login successful! Redirecting...");
-        setTimeout(() => router.push("/chat"), 800);
+        setTimeout(() => router.push(pendingBillingPlan ? "/pricing" : "/chat"), 800);
       } else {
         setError(data.detail || "Google login failed. Please try again.");
       }
@@ -221,9 +224,10 @@ export default function LoginForm() {
           refresh: data.refresh,
           remember: formData.remember 
         });
+        const pendingBillingPlan = getPendingBillingPlan();
         
         setMessage("✅ Login successful! Redirecting...");
-        setTimeout(() => router.push("/chat"), 1000);
+        setTimeout(() => router.push(pendingBillingPlan ? "/pricing" : "/chat"), 1000);
       } else {
         setError(data.error || "Invalid credentials. Try again.");
       }
