@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   XMarkIcon, 
   InformationCircleIcon, 
@@ -165,6 +165,18 @@ const finalIsEditMode = !forceCreateMode && isEditMode;
 
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const modelDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!isModelDropdownOpen) return;
+    const handleClickOutside = (event) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isModelDropdownOpen]);
 
   // Debug logging
   useEffect(() => {
@@ -491,7 +503,7 @@ const finalIsEditMode = !forceCreateMode && isEditMode;
                   /* Manual Model Selection - Dropdown Design */
                   <div className="space-y-3">
                     {/* Dropdown Trigger */}
-                    <div className="relative">
+                    <div className="relative" ref={modelDropdownRef}>
                       <button
                         type="button"
                         className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-left focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all hover:border-purple-300 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -524,8 +536,8 @@ const finalIsEditMode = !forceCreateMode && isEditMode;
                       
                       {/* Dropdown Menu */}
                       {isModelDropdownOpen && (
-                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 ">
-                          <div className="p-2 space-y-1">
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-hidden">
+                          <div className="p-2 space-y-1 max-h-60 overflow-y-auto scrollbar-thin pr-1">
                             {aiModels.map((model) => (
                               <button
                                 key={model.id}

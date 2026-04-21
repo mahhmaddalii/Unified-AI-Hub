@@ -1333,31 +1333,13 @@ return (
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              className={`flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none ${
+              className={`flex-1 resize-none rounded-lg outline-none text-sm py-2 sm:py-2.5 px-2.5 sm:px-3 placeholder-gray-500 min-h-[40px] sm:min-h-[44px] focus:outline-none scrollbar-thin ${
                 isAgentDeactivated || isLiveUpdatesActive ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
               }`}
               placeholder={isLiveUpdatesActive ? "Live updates in progress... (click Stop button above)" : "Message AI Assistant..."}
               rows="1"
               disabled={isLoading || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
             />
-
-            <button
-              type="button"
-              onClick={toggleInputExpansion}
-              className={`hidden xs:flex flex-shrink-0 p-1.5 sm:p-2 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors ${
-                isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
-              }`}
-              title={isInputExpanded ? "Collapse" : "Expand"}
-              disabled={isLiveUpdatesActive}
-            >
-              <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                {isInputExpanded ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
-                )}
-              </svg>
-            </button>
           </div>
 
           <div className="flex items-center justify-between">
