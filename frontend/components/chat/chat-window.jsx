@@ -40,25 +40,7 @@ export default function ChatWindow({
   // Browser notifications (tab badge + sound) — zero effect on stream logic
   const { notifyMessage, clearNotifications } = useNotifications();
 
-  const modelIcons = {
-    "auto": <SparklesIcon className="w-4 h-4 text-purple-600" />,
-    "gemini-flashlite": <Gemini.Color size={16} />,
-    "deepseek-chat": <DeepSeek.Color size={16} />,
-    "claude-3 haiku": <Claude.Color size={16} />,
-    "gpt5-nano": <OpenAI size={16} />,
-    "gemini-2.5-flash-image": <Gemini.Color size={16} />,
-    "mistral nemo": <Mistral.Color size={16} />,
-  };
-
-  const modelDisplayNames = {
-    "auto": "Auto",    
-    "gemini-flashlite": "Gemini",
-    "deepseek-chat": "DeepSeek",
-    "claude-3 haiku": "Claude",
-    "gpt5-nano": "GPT-5",
-    "gemini-2.5-flash-image": "Gemini Vision",
-    "mistral nemo": "Mistral",
-  };
+  
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -1340,6 +1322,24 @@ return (
               rows="1"
               disabled={isLoading || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
             />
+
+          <button
+              type="button"
+              onClick={toggleInputExpansion}
+              className={`hidden xs:flex flex-shrink-0 p-1.5 sm:p-2 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors ${
+                isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
+              }`}
+              title={isInputExpanded ? "Collapse" : "Expand"}
+              disabled={isLiveUpdatesActive}
+            >
+              <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                {isInputExpanded ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                )}
+              </svg>
+            </button>    
           </div>
 
           <div className="flex items-center justify-between">

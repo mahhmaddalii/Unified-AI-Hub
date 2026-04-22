@@ -20,7 +20,10 @@ MODEL_MAP = {
     "deepseek-chat": "deepseek/deepseek-chat",
     "claude-3 haiku": "anthropic/claude-3-haiku",
     "mistral nemo": "mistralai/mistral-nemo",
-    "llama guard 4": "meta-llama/llama-4-maverick"
+    "llama guard 4": "meta-llama/llama-4-maverick",
+    "gpt-oss-120b": "openai/gpt-oss-120b:free",
+    "models-router": "openrouter/free"
+    
 }
 
 IMAGE_GENERATION_MODEL = "gemini-2.5-flash-image"

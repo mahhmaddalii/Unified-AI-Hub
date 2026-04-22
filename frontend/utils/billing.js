@@ -1,5 +1,6 @@
 const BILLING_CACHE_KEY = "billingSnapshot";
 const PENDING_BILLING_PLAN_KEY = "pendingBillingPlan";
+const PENDING_STRIPE_CHECKOUT_KEY = "pendingStripeCheckout";
 
 export const getBillingCache = () => {
   if (typeof window === "undefined") return null;
@@ -38,4 +39,19 @@ export const setPendingBillingPlan = (plan) => {
 export const clearPendingBillingPlan = () => {
   if (typeof window === "undefined") return;
   localStorage.removeItem(PENDING_BILLING_PLAN_KEY);
+};
+
+export const hasPendingStripeCheckout = () => {
+  if (typeof window === "undefined") return false;
+  return sessionStorage.getItem(PENDING_STRIPE_CHECKOUT_KEY) === "true";
+};
+
+export const setPendingStripeCheckout = () => {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(PENDING_STRIPE_CHECKOUT_KEY, "true");
+};
+
+export const clearPendingStripeCheckout = () => {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(PENDING_STRIPE_CHECKOUT_KEY);
 };

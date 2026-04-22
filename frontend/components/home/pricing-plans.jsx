@@ -10,6 +10,7 @@ import {
   clearPendingBillingPlan,
   getBillingCache,
   getPendingBillingPlan,
+  setPendingStripeCheckout,
   setBillingCache,
   setPendingBillingPlan,
 } from "../../utils/billing";
@@ -176,6 +177,7 @@ export default function PricingPage() {
 
       if (data?.checkoutUrl) {
         clearPendingBillingPlan();
+        setPendingStripeCheckout();
         window.location.href = data.checkoutUrl;
         return;
       }

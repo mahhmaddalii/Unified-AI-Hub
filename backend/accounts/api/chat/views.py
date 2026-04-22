@@ -118,9 +118,7 @@ def chat_view(request):
             chat_title = query[:30] + "..." if len(query) > 30 else query
 
     resolved_model_id = resolve_normal_chat_model(query, model_id)
-    print(f"Requested model: {model_id}")
-    print(f"Resolved model: {resolved_model_id}")
-    
+
     # No automatic RAG here — agent decides via tool
     
     def event_stream():
