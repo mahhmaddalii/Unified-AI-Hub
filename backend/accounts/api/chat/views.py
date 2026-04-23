@@ -19,6 +19,12 @@ from dotenv import load_dotenv
 import sys, re
 from django.utils.encoding import force_str
 from langchain_core.chat_history import InMemoryChatMessageHistory
+from accounts.api.access import (
+    authenticate_request_user,
+    model_requires_pro,
+    sse_error_response,
+    user_has_pro_access,
+)
 
 load_dotenv()
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
@@ -99,6 +105,10 @@ def create_chat_view(request):
 def chat_view(request):
     if request.method != "GET":
         return JsonResponse({"error": "GET required for streaming"}, status=405)
+
+    user = authenticate_request_user(request, allow_query_token=True)
+    if not user:
+        return sse_error_response("Authentication required. Please sign in again.")
     
     query = request.GET.get("text", "").strip()
     model_id = request.GET.get("model", "gpt5-nano")
@@ -107,6 +117,9 @@ def chat_view(request):
     
     if not query:
         return JsonResponse({"error": "Empty message"}, status=400)
+
+    if model_requires_pro(model_id) and not user_has_pro_access(user):
+        return sse_error_response("Upgrade to Pro to use this model.")
     
     chat_title = None
     if is_first_message:

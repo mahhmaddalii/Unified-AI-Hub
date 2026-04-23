@@ -16,6 +16,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useAuth } from "../auth/auth-context";
 import { DEFAULT_MODEL_ID, MODEL_OPTIONS, getDefaultModelId, setDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
+import { canUseModelId, isProModelId, sanitizeModelIdForBilling } from "../../utils/plan-access";
 
 export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) => {
   const [activeSection, setActiveSection] = useState(initialSection);
@@ -58,6 +59,26 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [modelMenuOpen]);
 
+  const displayName = user?.name || (userLoading ? "Loading..." : "User");
+  const displayEmail = user?.email || "";
+  const avatarUrl = user?.avatarUrl || null;
+  const billing = user?.billing || null;
+  const isPaid = Boolean(billing?.isPaid);
+  const planLabel = isPaid ? "Pro Plan" : "Free Plan";
+  const selectedModel = MODEL_OPTIONS.find((model) => model.id === defaultModelId) ||
+    MODEL_OPTIONS.find((model) => model.id === DEFAULT_MODEL_ID) ||
+    MODEL_OPTIONS[0];
+
+  useEffect(() => {
+    if (userLoading) return;
+
+    const sanitizedModelId = sanitizeModelIdForBilling(defaultModelId, billing);
+    if (sanitizedModelId !== defaultModelId) {
+      setDefaultModelId(sanitizedModelId);
+      setDefaultModelIdState(sanitizedModelId);
+    }
+  }, [billing, defaultModelId, userLoading]);
+
   if (!isOpen) return null;
 
   const getInitials = (nameValue, emailValue) => {
@@ -71,16 +92,7 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
     return "U";
   };
 
-  const displayName = user?.name || (userLoading ? "Loading..." : "User");
-  const displayEmail = user?.email || "";
-  const avatarUrl = user?.avatarUrl || null;
-  const billing = user?.billing || null;
-  const isPaid = Boolean(billing?.isPaid);
-  const planLabel = isPaid ? "Pro Plan" : "Free Plan";
   const initials = getInitials(displayName, displayEmail);
-  const selectedModel = MODEL_OPTIONS.find((model) => model.id === defaultModelId) ||
-    MODEL_OPTIONS.find((model) => model.id === DEFAULT_MODEL_ID) ||
-    MODEL_OPTIONS[0];
 
   const sections = [
     { id: "general", icon: Cog6ToothIcon, title: "General" },
@@ -241,6 +253,12 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                                 key={model.id}
                                 type="button"
                                 onClick={() => {
+                                  if (!canUseModelId(model.id, billing)) {
+                                    setModelMenuOpen(false);
+                                    onClose();
+                                    router.push('/pricing');
+                                    return;
+                                  }
                                   setDefaultModelId(model.id);
                                   setDefaultModelIdState(model.id);
                                   setModelMenuOpen(false);
@@ -249,6 +267,11 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                               >
                                 <span className="text-base">{model.icon}</span>
                                 <span className="flex-1 text-left">{model.name}</span>
+                                {isProModelId(model.id) && (
+                                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-700">
+                                    Pro
+                                  </span>
+                                )}
                                 {model.id === defaultModelId && (
                                   <span className="text-purple-600">
                                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">

@@ -11,6 +11,13 @@ from .custom_agent_chat import (
     get_custom_agent_response,
     get_or_create_custom_agent_chat,
 )
+from accounts.api.access import (
+    authenticate_request_user,
+    json_auth_required_response,
+    json_pro_required_response,
+    sse_error_response,
+    user_has_pro_access,
+)
 
 
 def _generate_custom_agent_id():
@@ -23,6 +30,12 @@ def create_custom_agent_id_view(request):
     if request.method != 'POST':
         return JsonResponse({"error": "POST required"}, status=405)
 
+    user = authenticate_request_user(request)
+    if not user:
+        return json_auth_required_response()
+    if not user_has_pro_access(user):
+        return json_pro_required_response("Upgrade to Pro to create custom agents.")
+
     return JsonResponse({"agent_id": _generate_custom_agent_id()})
 
 
@@ -30,6 +43,12 @@ def create_custom_agent_id_view(request):
 def get_or_create_custom_agent_chat_view(request):
     if request.method != 'POST':
         return JsonResponse({"error": "POST required"}, status=405)
+
+    user = authenticate_request_user(request)
+    if not user:
+        return json_auth_required_response()
+    if not user_has_pro_access(user):
+        return json_pro_required_response("Upgrade to Pro to chat with custom agents.")
 
     try:
         payload = json.loads(request.body or "{}")
@@ -48,6 +67,12 @@ def get_or_create_custom_agent_chat_view(request):
 def custom_agent_chat_view(request):
     if request.method != 'GET':
         return JsonResponse({"error": "GET required for streaming"}, status=405)
+
+    user = authenticate_request_user(request, allow_query_token=True)
+    if not user:
+        return sse_error_response("Authentication required. Please sign in again.")
+    if not user_has_pro_access(user):
+        return sse_error_response("Upgrade to Pro to use custom agents.")
     
     agent_id = request.GET.get("agent_id", "").strip()
     chat_id = request.GET.get("chat_id", "").strip()

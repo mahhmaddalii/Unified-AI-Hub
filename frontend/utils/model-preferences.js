@@ -6,16 +6,16 @@ const STORAGE_KEY = "defaultModelId";
 export const DEFAULT_MODEL_ID = "gemini-flashlite";
 
 export const MODEL_OPTIONS = [
-  { id: "auto", name: "Auto", description: "Automatically choose the best model for each message", icon: <SparklesIcon className="w-6 h-6 text-purple-600" /> },
-  { id: "models-router", name: "Models Router", description: "Randomly selects free models supporting required features and tools", icon: <ArrowsRightLeftIcon className="w-6 h-6 text-purple-600" />},
-  { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={20} /> },
-  { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={20} /> },
-  { id: "gpt5-nano", name: "GPT-5 Nano", description: "Good for complex reasoning", icon: <OpenAI size={20} /> },
-  { id: "gpt-oss-120b", name: "GPT-Oss ", description: "Open-weight OpenAI model for reasoning, agents, production use", icon: <OpenAI size={20} /> },
-  { id: "gemini-flashlite", name: "Gemini Pro", description: "Great for multimodal tasks", icon: <Gemini.Color size={20} /> },
-  { id: "gemini-2.5-flash-image", name: "Gemini 2.5 Flash", description: "Image generation & preview", icon: <Gemini.Color size={20} /> },
-  { id: "llama guard 4", name: "Llama 3", description: "Open-source alternative", icon: <Meta size={20} /> },
-  { id: "mistral nemo", name: "Mistral", description: "Efficient and fast", icon: <Mistral.Color size={20} /> },
+  { id: "auto", name: "Auto", description: "Automatically choose the best model for each message", icon: <SparklesIcon className="w-6 h-6 text-purple-600" />, tier: "pro" },
+  { id: "models-router", name: "Models Router", description: "Randomly selects free models supporting required features", icon: <ArrowsRightLeftIcon className="w-6 h-6 text-purple-600" />, tier: "free" },
+  { id: "deepseek-chat", name: "DeepSeek Chat", description: "Best for general conversation", icon: <DeepSeek.Color size={20} />, tier: "pro" },
+  { id: "claude-3 haiku", name: "Claude 3", description: "Helpful for creative writing", icon: <Claude.Color size={20} />, tier: "pro" },
+  { id: "gpt5-nano", name: "GPT-5 Nano", description: "Good for complex reasoning", icon: <OpenAI size={20} />, tier: "pro" },
+  { id: "gpt-oss-120b", name: "GPT-Oss ", description: "Open-weight OpenAI model for reasoning, agents, production use", icon: <OpenAI size={20} />, tier: "free" },
+  { id: "gemini-flashlite", name: "Gemini Pro", description: "Great for multimodal tasks", icon: <Gemini.Color size={20} />, tier: "pro" },
+  { id: "gemini-2.5-flash-image", name: "Gemini 2.5 Flash", description: "Image generation & preview", icon: <Gemini.Color size={20} />, tier: "pro" },
+  { id: "llama guard 4", name: "Llama 3", description: "Open-source alternative", icon: <Meta size={20} />, tier: "pro" },
+  { id: "mistral nemo", name: "Mistral", description: "Efficient and fast", icon: <Mistral.Color size={20} />, tier: "pro" },
 ];
 
 export const getDefaultModelId = () => {

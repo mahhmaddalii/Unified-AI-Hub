@@ -6,6 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 
+from accounts.api.access import authenticate_request_user, sse_error_response, user_has_pro_access
 from accounts.api.domain_agent_sessions import get_or_create_domain_thread_id
 from .agent import get_politics_response, reset_politics_chat
 from .tools import (
@@ -34,6 +35,12 @@ def _stream_text(text: str):
 @csrf_exempt
 @require_GET
 def politics_stream(request):
+    user = authenticate_request_user(request, allow_query_token=True)
+    if not user:
+        return sse_error_response("Authentication required. Please sign in again.")
+    if not user_has_pro_access(user):
+        return sse_error_response("Upgrade to Pro to use domain agents.")
+
     query = request.GET.get("text", "").strip()
     chat_id = request.GET.get("chat_id", "").strip()
     thread_id = get_or_create_domain_thread_id(

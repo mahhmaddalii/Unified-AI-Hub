@@ -7,6 +7,7 @@ from django.views.decorators.http import require_GET, require_POST
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
+from accounts.api.access import json_pro_required_response, sse_error_response, user_has_pro_access
 from .agent import get_comsats_response, reset_comsats_chat
 from .gmail import (
     build_gmail_oauth_url,
@@ -54,6 +55,11 @@ def comsats_stream(request):
     thread_id = request.GET.get("chat_id", "").strip() or request.GET.get("thread_id", "comsats_agent_chat")
     user = authenticate_query_token(request)
 
+    if not user:
+        return sse_error_response("Authentication required. Please sign in again.")
+    if not user_has_pro_access(user):
+        return sse_error_response("Upgrade to Pro to use domain agents.")
+
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
 
@@ -98,6 +104,8 @@ def comsats_send_email(request):
     user = authenticate_header_token(request)
     if not user:
         return JsonResponse({"error": "Authentication required."}, status=401)
+    if not user_has_pro_access(user):
+        return json_pro_required_response("Upgrade to Pro to use the Comsats agent.")
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")

@@ -2,9 +2,12 @@
 
 import { useState, useEffect } from "react";
 import dynamic from 'next/dynamic';
+import { useRouter } from "next/navigation";
 import AgentCard from './agentcard';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import { useAgents } from "./AgentContext";
+import { useAuth } from "../auth/auth-context";
+import { areAgentsLockedForBilling } from "../../utils/plan-access";
 import {
   PlusIcon,
   SparklesIcon,
@@ -35,6 +38,11 @@ export default function AgentDashboard({
   // onCloseCreateModal,
   // editingAgent: externalEditingAgent
 }) {
+  const router = useRouter();
+  const { user, loading: userLoading } = useAuth();
+  const billing = user?.billing || null;
+  const agentsLocked = !userLoading && areAgentsLockedForBilling(billing);
+
   const {
     agents,
     allAgents,
@@ -72,6 +80,11 @@ export default function AgentDashboard({
   // }, [showCreateModal, isCreatingAgent, setEditingAgent, setIsCreatingAgent]);
 
   const handleSelectAgent = (agent) => {
+    if (agentsLocked) {
+      router.push("/pricing");
+      return;
+    }
+
     console.log("=== AGENT SELECTION ===");
     console.log("Agent selected:", agent.name);
     
@@ -92,6 +105,11 @@ export default function AgentDashboard({
   };
 
   const handleCreateNewAgent = () => {
+  if (agentsLocked) {
+    router.push("/pricing");
+    return;
+  }
+
   console.log("🆕 Creating new agent - FORCE clearing editing state");
   
   // Force clear ALL editing states
@@ -142,6 +160,11 @@ export default function AgentDashboard({
   };
 
   const handleAgentSubmit = async (firstParam, secondParam) => {
+    if (agentsLocked) {
+      router.push("/pricing");
+      return;
+    }
+
     console.log("handleAgentSubmit called with:", { firstParam, secondParam });
     
     let agentId, agentData;
@@ -211,6 +234,27 @@ export default function AgentDashboard({
 
   return (
     <div className="flex flex-col h-full bg-white">
+      {agentsLocked ? (
+        <div className="flex h-full items-center justify-center p-6">
+          <div className="w-full max-w-lg rounded-3xl border border-purple-200 bg-gradient-to-br from-purple-50 to-indigo-50 p-8 text-center shadow-sm">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm">
+              <LockClosedIcon className="h-7 w-7 text-purple-600" />
+            </div>
+            <h2 className="mt-5 text-2xl font-semibold text-gray-900">Unlock AI Agents with Pro</h2>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              Domain agents and custom agents are reserved for Pro users. Upgrade to access cricket, politics, Comsats,
+              and your own custom assistants.
+            </p>
+            <button
+              onClick={() => router.push("/pricing")}
+              className="mt-6 rounded-xl bg-purple-600 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-purple-700"
+            >
+              View Pro Plan
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Header with stats */}
       <div className="px-6 py-4 border-b border-gray-100">
         <div className="flex items-center justify-between">
@@ -359,6 +403,8 @@ export default function AgentDashboard({
         chatCount={deleteModal.chatCount}
         message={`Are you sure you want to delete "${deleteModal.agentName}"?`}
       />
+        </>
+      )}
     </div>
   );
 }

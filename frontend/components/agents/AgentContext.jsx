@@ -2,7 +2,9 @@
 
 
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { API_URL, fetchWithAuth } from "../../utils/auth";
+
+const API_BASE_URL = API_URL;
 const BACKEND_CUSTOM_AGENT_ID_PATTERN = /^agent-\d{13}-[a-z0-9]{9}$/;
 
 // Default built-in agents (unchanged)
@@ -184,9 +186,8 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
   }, [agents.builtIn, agents.custom]);
 
   const createBackendAgentId = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/api/custom_agents/create-id/`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/create-id/`, {
       method: "POST",
-      credentials: "include"
     });
 
     if (!response.ok) {
