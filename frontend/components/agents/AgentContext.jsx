@@ -3,6 +3,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { API_URL, fetchWithAuth } from "../../utils/auth";
+import { useAuth } from "../auth/auth-context";
 
 const API_BASE_URL = API_URL;
 const BACKEND_CUSTOM_AGENT_ID_PATTERN = /^agent-\d{13}-[a-z0-9]{9}$/;
@@ -130,6 +131,7 @@ const cleanAgentData = (agent) => {
 
 // Main provider component
 export function AgentProvider({ children, initialCustomAgents = [] }) {
+  const { refreshBilling } = useAuth();
   // Load agents from localStorage on initial render
   const [agents, setAgents] = useState(() => {
     if (typeof window === "undefined") {
@@ -190,13 +192,16 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
       method: "POST",
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to create agent id: ${response.status}`);
-    }
+    const data = await response.json().catch(() => null);
 
-    const data = await response.json();
+    if (!response.ok) {
+      if (response.status === 403) {
+        await refreshBilling();
+      }
+      throw new Error(data?.error || `Failed to create agent id: ${response.status}`);
+    }
     return data.agent_id;
-  }, []);
+  }, [refreshBilling]);
 
   const ensureCustomAgentUsesBackendId = useCallback(async (agentOrId) => {
     const agentId = typeof agentOrId === "string" ? agentOrId : agentOrId?.id;

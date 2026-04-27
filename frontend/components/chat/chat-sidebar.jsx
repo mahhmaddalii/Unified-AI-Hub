@@ -7,7 +7,12 @@ import { useState, useEffect, useRef } from "react";
 import { useAgents } from "../agents/AgentContext";
 import { showToast } from '../../utils/toast'; 
 import { useAuth } from "../auth/auth-context";
-import { areAgentsLockedForBilling } from "../../utils/plan-access";
+import {
+  areAgentsLockedForBilling,
+  areCustomAgentsLockedForBilling,
+  hasTokenLimitReached,
+  TOKEN_LIMIT_REACHED_MESSAGE,
+} from "../../utils/plan-access";
 import {
   PlusIcon,
   ChatBubbleOvalLeftIcon,
@@ -72,7 +77,7 @@ export default function UnifiedSidebar({
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const router = useRouter();
   const [activeBuiltInChats, setActiveBuiltInChats] = useState({});
-  const { user, loading: userLoading, logout } = useAuth();
+  const { user, loading: userLoading, logout, refreshBilling } = useAuth();
   const billing = user?.billing || null;
   const agentsLocked = !userLoading && areAgentsLockedForBilling(billing);
 
@@ -240,6 +245,16 @@ export default function UnifiedSidebar({
       return;
     }
 
+    if (areCustomAgentsLockedForBilling(billing)) {
+      if (billing?.isPaid && hasTokenLimitReached(billing)) {
+        refreshBilling();
+        showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      } else {
+        redirectToPricingForAgents("Custom agents are available on Pro. Upgrade to continue.");
+      }
+      return;
+    }
+
     setEditingAgent(null);
     setPendingAction('create');
     setActiveTab("agents");
@@ -255,6 +270,22 @@ export default function UnifiedSidebar({
   const handleSelectAgent = (agent) => {
     if (agentsLocked) {
       redirectToPricingForAgents("Domain and custom agents are available on Pro. Upgrade to continue.");
+      return;
+    }
+
+    if (!agent.isBuiltIn && areCustomAgentsLockedForBilling(billing)) {
+      if (billing?.isPaid && hasTokenLimitReached(billing)) {
+        refreshBilling();
+        showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      } else {
+        redirectToPricingForAgents("Custom agents are available on Pro. Upgrade to continue.");
+      }
+      return;
+    }
+
+    if (agent.id === "builtin-comsats" && hasTokenLimitReached(billing)) {
+      refreshBilling();
+      showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
       return;
     }
 

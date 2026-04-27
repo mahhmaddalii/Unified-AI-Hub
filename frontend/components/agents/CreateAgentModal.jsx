@@ -17,6 +17,7 @@ import {
 
 // AI Models list
 import { OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
+import { showToast } from "../../utils/toast";
 
 const aiModels = [
   { 
@@ -283,6 +284,7 @@ const finalIsEditMode = !forceCreateMode && isEditMode;
       handleClose();
     } catch (error) {
       console.error("Error submitting agent:", error);
+      showToast.error(error?.message || "Unable to save this agent right now.");
     } finally {
       setIsSubmitting(false);
     }

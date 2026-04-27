@@ -1,13 +1,19 @@
 import time
 import json
 
+from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
-from accounts.api.access import json_pro_required_response, sse_error_response, user_has_pro_access
+from accounts.api.access import (
+    get_user_billing_profile,
+    json_pro_required_response,
+    sse_error_response,
+    sse_token_limit_response,
+)
 from .agent import get_comsats_response, reset_comsats_chat
 from .gmail import (
     build_gmail_oauth_url,
@@ -57,15 +63,18 @@ def comsats_stream(request):
 
     if not user:
         return sse_error_response("Authentication required. Please sign in again.")
-    if not user_has_pro_access(user):
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    if not billing_profile or not billing_profile.is_paid:
         return sse_error_response("Upgrade to Pro to use domain agents.")
+    if billing_profile.token_total_used >= getattr(settings, "PAID_MONTHLY_TOKEN_QUOTA", 0):
+        return sse_token_limit_response("Token limit reached. Please wait until subscription renewal.")
 
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
 
     def stream_response():
         try:
-            response = get_comsats_response(query, thread_id=thread_id, user=user)
+            response = get_comsats_response(query, thread_id=thread_id, user=user, track_tokens=True)
             for word in response.split(" "):
                 yield f"data: {word.replace(chr(10), '\\n')} \n\n"
                 time.sleep(0.02)
@@ -104,7 +113,8 @@ def comsats_send_email(request):
     user = authenticate_header_token(request)
     if not user:
         return JsonResponse({"error": "Authentication required."}, status=401)
-    if not user_has_pro_access(user):
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    if not billing_profile or not billing_profile.is_paid:
         return json_pro_required_response("Upgrade to Pro to use the Comsats agent.")
 
     try:

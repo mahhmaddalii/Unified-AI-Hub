@@ -7,7 +7,13 @@ import AgentCard from './agentcard';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import { useAgents } from "./AgentContext";
 import { useAuth } from "../auth/auth-context";
-import { areAgentsLockedForBilling } from "../../utils/plan-access";
+import { showToast } from "../../utils/toast";
+import {
+  areAgentsLockedForBilling,
+  areCustomAgentsLockedForBilling,
+  hasTokenLimitReached,
+  TOKEN_LIMIT_REACHED_MESSAGE,
+} from "../../utils/plan-access";
 import {
   PlusIcon,
   SparklesIcon,
@@ -39,7 +45,7 @@ export default function AgentDashboard({
   // editingAgent: externalEditingAgent
 }) {
   const router = useRouter();
-  const { user, loading: userLoading } = useAuth();
+  const { user, loading: userLoading, refreshBilling } = useAuth();
   const billing = user?.billing || null;
   const agentsLocked = !userLoading && areAgentsLockedForBilling(billing);
 
@@ -85,6 +91,22 @@ export default function AgentDashboard({
       return;
     }
 
+    if (!agent.isBuiltIn && areCustomAgentsLockedForBilling(billing)) {
+      if (billing?.isPaid && hasTokenLimitReached(billing)) {
+        refreshBilling();
+        showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      } else {
+        router.push("/pricing");
+      }
+      return;
+    }
+
+    if (agent.id === "builtin-comsats" && hasTokenLimitReached(billing)) {
+      refreshBilling();
+      showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      return;
+    }
+
     console.log("=== AGENT SELECTION ===");
     console.log("Agent selected:", agent.name);
     
@@ -107,6 +129,15 @@ export default function AgentDashboard({
   const handleCreateNewAgent = () => {
   if (agentsLocked) {
     router.push("/pricing");
+    return;
+  }
+  if (areCustomAgentsLockedForBilling(billing)) {
+    if (billing?.isPaid && hasTokenLimitReached(billing)) {
+      refreshBilling();
+      showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+    } else {
+      router.push("/pricing");
+    }
     return;
   }
 
@@ -162,6 +193,15 @@ export default function AgentDashboard({
   const handleAgentSubmit = async (firstParam, secondParam) => {
     if (agentsLocked) {
       router.push("/pricing");
+      return;
+    }
+    if (areCustomAgentsLockedForBilling(billing)) {
+      if (billing?.isPaid && hasTokenLimitReached(billing)) {
+        await refreshBilling();
+        showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      } else {
+        router.push("/pricing");
+      }
       return;
     }
 

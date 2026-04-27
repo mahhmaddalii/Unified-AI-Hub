@@ -1,4 +1,4 @@
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 import requests
 from django.conf import settings
@@ -8,6 +8,7 @@ from accounts.models import BillingProfile
 
 STRIPE_API_BASE = "https://api.stripe.com/v1"
 ACTIVE_BILLING_STATUSES = {"active", "trialing"}
+BILLING_SYNC_INTERVAL = timedelta(minutes=15)
 
 
 class StripeServiceError(Exception):
@@ -25,6 +26,21 @@ def stripe_is_configured():
 def get_or_create_billing_profile(user):
     profile, _ = BillingProfile.objects.get_or_create(user=user)
     return profile
+
+
+def get_paid_monthly_token_quota():
+    return max(int(getattr(settings, "PAID_MONTHLY_TOKEN_QUOTA", 0) or 0), 0)
+
+
+def extract_token_usage(callback):
+    input_tokens = int(getattr(callback, "prompt_tokens", 0) or 0)
+    output_tokens = int(getattr(callback, "completion_tokens", 0) or 0)
+    total_tokens = int(getattr(callback, "total_tokens", 0) or (input_tokens + output_tokens))
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
 
 
 def stripe_request(method, path, data=None, params=None):
@@ -57,7 +73,50 @@ def stripe_timestamp_to_datetime(timestamp):
     return datetime.fromtimestamp(timestamp, tz=dt_timezone.utc)
 
 
+def ensure_token_cycle(profile):
+    if not profile.is_paid:
+        return profile
+
+    next_reset_at = profile.current_period_end
+    if not next_reset_at:
+        return profile
+
+    fields_to_update = []
+
+    # A changed Stripe period end means the subscription renewed and the
+    # user gets a fresh monthly token bucket.
+    if profile.token_usage_reset_at != next_reset_at:
+        profile.token_input_used = 0
+        profile.token_output_used = 0
+        profile.token_total_used = 0
+        profile.token_usage_reset_at = next_reset_at
+        fields_to_update.extend([
+            "token_input_used",
+            "token_output_used",
+            "token_total_used",
+            "token_usage_reset_at",
+            "updated_at",
+        ])
+    elif profile.token_usage_reset_at is None:
+        profile.token_usage_reset_at = next_reset_at
+        fields_to_update.extend(["token_usage_reset_at", "updated_at"])
+
+    if fields_to_update:
+        profile.save(update_fields=fields_to_update)
+
+    return profile
+
+
 def billing_snapshot(profile):
+    ensure_token_cycle(profile)
+    token_quota = get_paid_monthly_token_quota() if profile.is_paid else None
+    token_remaining = None
+    token_limit_reached = False
+
+    if token_quota is not None:
+        token_remaining = max(token_quota - profile.token_total_used, 0)
+        token_limit_reached = profile.token_total_used >= token_quota
+
     return {
         "plan": profile.plan_name,
         "status": profile.billing_status,
@@ -68,6 +127,15 @@ def billing_snapshot(profile):
         "stripeCustomerId": profile.stripe_customer_id or None,
         "stripeSubscriptionId": profile.stripe_subscription_id or None,
         "lastVerifiedAt": profile.last_verified_at.isoformat() if profile.last_verified_at else None,
+        "tokenUsage": {
+            "input": profile.token_input_used,
+            "output": profile.token_output_used,
+            "total": profile.token_total_used,
+        },
+        "tokenQuota": token_quota,
+        "tokenRemaining": token_remaining,
+        "tokenLimitReached": token_limit_reached,
+        "tokenResetAt": profile.token_usage_reset_at.isoformat() if profile.token_usage_reset_at else None,
     }
 
 
@@ -126,7 +194,7 @@ def _apply_subscription_to_profile(profile, subscription, selected_plan=None):
         "plan_name",
         "updated_at",
     ])
-    return profile
+    return ensure_token_cycle(profile)
 
 
 def ensure_stripe_customer(profile, user):
@@ -148,16 +216,79 @@ def ensure_stripe_customer(profile, user):
     return profile.stripe_customer_id
 
 
+def maybe_sync_billing_profile(profile, force=False):
+    if not stripe_is_configured():
+        return ensure_token_cycle(profile)
+
+    should_sync = force
+
+    if not should_sync and profile.stripe_customer_id:
+        if not profile.last_verified_at:
+            should_sync = True
+        elif profile.current_period_end and profile.current_period_end <= timezone.now():
+            should_sync = True
+        elif profile.last_verified_at <= timezone.now() - BILLING_SYNC_INTERVAL:
+            should_sync = True
+
+    if should_sync:
+        sync_subscription_from_stripe(profile)
+
+    return ensure_token_cycle(profile)
+
+
+def profile_has_paid_token_access(profile):
+    ensure_token_cycle(profile)
+
+    if not profile.is_paid:
+        return False
+
+    token_quota = get_paid_monthly_token_quota()
+    if token_quota <= 0:
+        return False
+
+    return profile.token_total_used < token_quota
+
+
+def record_token_usage(profile, input_tokens=0, output_tokens=0, total_tokens=None):
+    if not profile.is_paid:
+        return profile
+
+    ensure_token_cycle(profile)
+
+    safe_input_tokens = max(int(input_tokens or 0), 0)
+    safe_output_tokens = max(int(output_tokens or 0), 0)
+    safe_total_tokens = max(
+        int(total_tokens if total_tokens is not None else (safe_input_tokens + safe_output_tokens)),
+        0,
+    )
+
+    if safe_total_tokens <= 0:
+        return profile
+
+    profile.token_input_used += safe_input_tokens
+    profile.token_output_used += safe_output_tokens
+    profile.token_total_used += safe_total_tokens
+    profile.token_usage_last_recorded_at = timezone.now()
+    profile.save(update_fields=[
+        "token_input_used",
+        "token_output_used",
+        "token_total_used",
+        "token_usage_last_recorded_at",
+        "updated_at",
+    ])
+    return profile
+
+
 def sync_subscription_from_stripe(profile):
     if not stripe_is_configured():
-        return profile
+        return ensure_token_cycle(profile)
 
     if profile.stripe_subscription_id:
         subscription = stripe_request("GET", f"/subscriptions/{profile.stripe_subscription_id}")
         return _apply_subscription_to_profile(profile, subscription)
 
     if not profile.stripe_customer_id:
-        return profile
+        return ensure_token_cycle(profile)
 
     # Some successful checkouts reach us before we have stored the final
     # subscription id locally, so recover the newest usable subscription
@@ -177,16 +308,18 @@ def sync_subscription_from_stripe(profile):
             continue
         return _apply_subscription_to_profile(profile, subscription)
 
-    return profile
+    return ensure_token_cycle(profile)
 
 
 def get_billing_snapshot_for_user(user, sync_remote=False):
     profile = get_or_create_billing_profile(user)
     if sync_remote:
         try:
-            sync_subscription_from_stripe(profile)
+            maybe_sync_billing_profile(profile, force=True)
         except StripeServiceError:
             pass
+    else:
+        ensure_token_cycle(profile)
     return billing_snapshot(profile)
 
 

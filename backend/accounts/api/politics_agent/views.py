@@ -1,12 +1,18 @@
 # backend/accounts/api/politics_agent/views.py
 import time
 from datetime import datetime
+from django.conf import settings
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 
-from accounts.api.access import authenticate_request_user, sse_error_response, user_has_pro_access
+from accounts.api.access import (
+    authenticate_request_user,
+    get_user_billing_profile,
+    sse_error_response,
+    sse_token_limit_response,
+)
 from accounts.api.domain_agent_sessions import get_or_create_domain_thread_id
 from .agent import get_politics_response, reset_politics_chat
 from .tools import (
@@ -32,13 +38,43 @@ def _stream_text(text: str):
         time.sleep(0.02)
 
 
+def is_live_news_request(query: str) -> bool:
+    q_lower = (query or "").lower().strip()
+    if q_lower in ["stop", "stop news", "stop updates", "end news", "live politics news"]:
+        return True
+
+    trigger_phrases = [
+        "automatic news updates for",
+        "keep sending news for",
+        "latest news updates for",
+        "news every few minutes for",
+        "live news updates for",
+        "live politics news for",
+        "live updates for",
+        "live news for",
+        "live updates of",
+        "live news of",
+        "live news updates of",
+        "live updates on",
+        "live news on",
+        "live news updates on",
+        "live updates about",
+        "live news about",
+        "starting live updates",
+        "start live updates",
+        "start live news",
+    ]
+    return any(q_lower.startswith(phrase) for phrase in trigger_phrases)
+
+
 @csrf_exempt
 @require_GET
 def politics_stream(request):
     user = authenticate_request_user(request, allow_query_token=True)
     if not user:
         return sse_error_response("Authentication required. Please sign in again.")
-    if not user_has_pro_access(user):
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    if not billing_profile or not billing_profile.is_paid:
         return sse_error_response("Upgrade to Pro to use domain agents.")
 
     query = request.GET.get("text", "").strip()
@@ -50,6 +86,8 @@ def politics_stream(request):
 
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
+    if not is_live_news_request(query) and billing_profile.token_total_used >= settings.PAID_MONTHLY_TOKEN_QUOTA:
+        return sse_token_limit_response("Token limit reached. Please wait until subscription renewal.")
 
     print(f"📰 Politics request: {query[:60]}… (chat: {chat_id or 'none'}, thread: {thread_id})")
 
@@ -253,7 +291,9 @@ def politics_stream(request):
                 return
 
             # ── REGULAR QUERY ─────────────────────────────────────────────────
-            response = get_politics_response(query, thread_id=thread_id)
+            response = get_politics_response(query, thread_id=thread_id, user=user, track_tokens=True)
+            if isinstance(response, tuple):
+                response, _usage = response
             yield from _stream_text(response)
             yield "data: [DONE]\n\n"
 

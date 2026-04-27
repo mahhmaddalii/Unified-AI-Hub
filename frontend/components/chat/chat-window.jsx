@@ -15,7 +15,15 @@ import rehypeRaw from 'rehype-raw';
 import { MODEL_OPTIONS, getDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
 import { API_URL, fetchWithAuth, getAccessToken } from "../../utils/auth";
 import { useAuth } from "../auth/auth-context";
-import { canUseModelId, isProModelId, sanitizeModelIdForBilling } from "../../utils/plan-access";
+import {
+  canUseAgentForPrompt,
+  canUseModelId,
+  getAgentBillingBlockMessage,
+  hasTokenLimitReached,
+  isProModelId,
+  sanitizeModelIdForBilling,
+  TOKEN_LIMIT_REACHED_MESSAGE,
+} from "../../utils/plan-access";
 
 export default function ChatWindow({
   chatId,
@@ -27,7 +35,7 @@ export default function ChatWindow({
   selectedAgent = null
 }) {
   const router = useRouter();
-  const { user, loading: userLoading } = useAuth();
+  const { user, loading: userLoading, refreshBilling } = useAuth();
   const billing = user?.billing || null;
   
 
@@ -109,12 +117,19 @@ export default function ChatWindow({
   }, []);
 
   const redirectToPricingForModel = useCallback((modelId) => {
+    if (hasTokenLimitReached(billing)) {
+      toast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      refreshBilling();
+      setShowModelDialog(false);
+      return;
+    }
+
     const model = MODEL_OPTIONS.find((option) => option.id === modelId);
     const modelName = model?.name || "This model";
     toast.info(`${modelName} is available on Pro. Upgrade to continue.`);
     setShowModelDialog(false);
     router.push("/pricing");
-  }, [router]);
+  }, [billing, refreshBilling, router]);
 
   // Send stop signal to backend — fire and forget
   const sendStopSignalToBackend = useCallback((chatIdToStop, chatState) => {
@@ -704,23 +719,37 @@ export default function ChatWindow({
         return;
       }
 
+      const rawInput = input.trim();
+      const agentBlockMessage = getAgentBillingBlockMessage(selectedAgent, billing, rawInput);
+      if (agentBlockMessage) {
+        setStatusMsg(agentBlockMessage);
+        if (agentBlockMessage === TOKEN_LIMIT_REACHED_MESSAGE) {
+          toast.info(agentBlockMessage);
+          await refreshBilling();
+        } else {
+          toast.info(agentBlockMessage);
+          router.push("/pricing");
+        }
+        return;
+      }
+
       if (!selectedAgent && !canUseModelId(selectedModel, billing)) {
         redirectToPricingForModel(selectedModel);
         return;
       }
 
-      const hasText = input.trim().length > 0;
+      const hasText = rawInput.length > 0;
       const hasFiles = attachedFiles.length > 0;
       if (!hasText && !hasFiles) return;
       dismissPendingDrafts();
 
       const userMsgId = generateUniqueId();
-      const userMsg = {
-        id: userMsgId,
-        role: "user",
-        text: input.trim(),
-        files: attachedFiles.map(file => ({ name: file.name, size: file.size, type: getFileType(file.name) }))
-      };
+        const userMsg = {
+          id: userMsgId,
+          role: "user",
+          text: rawInput,
+          files: attachedFiles.map(file => ({ name: file.name, size: file.size, type: getFileType(file.name) }))
+        };
 
       currentAssistantIdRef.current = generateUniqueId();
       setMessages(prev => [...prev, userMsg]);
@@ -748,7 +777,11 @@ export default function ChatWindow({
 
       if (currentFiles.length > 0) await uploadFilesIfAny(currentChatId);
 
-      const apiText = hasText ? input.trim() : "[User sent files]";
+        const apiText = hasText ? rawInput : "[User sent files]";
+        const shouldRefreshBillingAfterResponse = Boolean(
+          (selectedAgent && canUseAgentForPrompt(selectedAgent, billing, apiText)) ||
+          (!selectedAgent && isProModelId(selectedModel))
+        );
 
       let url;
       if (selectedAgent && !selectedAgent.isBuiltIn) {
@@ -765,16 +798,16 @@ export default function ChatWindow({
         url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(apiText)}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}&access_token=${accessToken}`;
       }
 
-      if (onSetLoading) onSetLoading(true);
-      setTimeout(() => { makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url); }, 100);
-    } catch (error) {
-      console.error("Failed to start chat:", error);
-      setStatusMsg("Unable to start chat right now.");
-      onSetLoading?.(false);
-    }
-  }, [attachedFiles, billing, buildComsatsUrl, buildCricketUrl, buildPoliticsUrl, dismissPendingDrafts, input, onNewMessage, onSetLoading, redirectToPricingForModel, selectedAgent, selectedModel]);
+        if (onSetLoading) onSetLoading(true);
+        setTimeout(() => { makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url, shouldRefreshBillingAfterResponse); }, 100);
+      } catch (error) {
+        console.error("Failed to start chat:", error);
+        setStatusMsg("Unable to start chat right now.");
+        onSetLoading?.(false);
+      }
+    }, [attachedFiles, billing, buildComsatsUrl, buildCricketUrl, buildPoliticsUrl, dismissPendingDrafts, input, onNewMessage, onSetLoading, redirectToPricingForModel, refreshBilling, router, selectedAgent, selectedModel]);
 
-  const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
+  const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url, shouldRefreshBillingAfterResponse = false) => {
     if (!targetChatId) return;
 
     console.log("🔗 Starting stream for chat:", targetChatId, url);
@@ -878,6 +911,9 @@ export default function ChatWindow({
         // Always clear loading — even for background chats (clears the spinner dot in sidebar)
         onSetLoading?.(false);
         chatStatesRef.current.delete(targetChatId);
+        if (shouldRefreshBillingAfterResponse) {
+          refreshBilling();
+        }
         return;
       }
 
@@ -903,8 +939,14 @@ export default function ChatWindow({
         es.close();
         activeStreamsRef.current.delete(targetChatId);
         chatStatesRef.current.delete(targetChatId);
-        if (errorMessage.toLowerCase().includes("upgrade to pro")) {
+        if (errorMessage === TOKEN_LIMIT_REACHED_MESSAGE) {
+          toast.info(errorMessage);
+          refreshBilling();
+        } else if (errorMessage.toLowerCase().includes("upgrade to pro")) {
+          toast.info(errorMessage);
           router.push("/pricing");
+        } else if (isActiveChat) {
+          toast.error(errorMessage);
         }
         if (isActiveChat) { setStatusMsg(errorMessage); onSetLoading?.(false); }
         return;
@@ -1084,7 +1126,7 @@ export default function ChatWindow({
     };
 
     es.onopen = () => console.log("🔗 SSE opened:", targetChatId);
-  }, [extractEmailDraft, flushChatStateToParent, messages, notifyMessage, onNewMessage, onSetLoading, router, selectedAgent, selectedModel]);
+  }, [extractEmailDraft, flushChatStateToParent, messages, notifyMessage, onNewMessage, onSetLoading, refreshBilling, router, selectedAgent, selectedModel]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {

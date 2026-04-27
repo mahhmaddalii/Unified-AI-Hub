@@ -2,7 +2,11 @@ from django.http import JsonResponse, StreamingHttpResponse
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
-from accounts.api.billing.services import get_or_create_billing_profile
+from accounts.api.billing.services import (
+    get_or_create_billing_profile,
+    maybe_sync_billing_profile,
+    profile_has_paid_token_access,
+)
 
 FREE_MODEL_IDS = {"gpt-oss-120b", "models-router"}
 
@@ -45,6 +49,28 @@ def user_has_pro_access(user):
     return profile.is_paid
 
 
+def get_user_billing_profile(user, sync_remote=False):
+    if not user or not getattr(user, "is_authenticated", False):
+        return None
+
+    profile = get_or_create_billing_profile(user)
+    if sync_remote:
+        try:
+            profile = maybe_sync_billing_profile(profile, force=True)
+        except Exception:
+            pass
+    else:
+        profile = maybe_sync_billing_profile(profile, force=False)
+    return profile
+
+
+def user_has_paid_token_access(user, sync_remote=False):
+    profile = get_user_billing_profile(user, sync_remote=sync_remote)
+    if not profile:
+        return False
+    return profile_has_paid_token_access(profile)
+
+
 def model_requires_pro(model_id):
     return (model_id or "").strip() not in FREE_MODEL_IDS
 
@@ -64,6 +90,16 @@ def json_pro_required_response(message="Upgrade to Pro to use this feature."):
     )
 
 
+def json_token_limit_response(message="Token limit reached. Please wait until subscription renewal."):
+    return JsonResponse(
+        {
+            "error": message,
+            "token_limit_reached": True,
+        },
+        status=403,
+    )
+
+
 def sse_error_response(message):
     response = StreamingHttpResponse(
         [f"data: [ERROR]{message}\n\n", "data: [DONE]\n\n"],
@@ -73,3 +109,7 @@ def sse_error_response(message):
     response["X-Accel-Buffering"] = "no"
     response["Access-Control-Allow-Origin"] = "*"
     return response
+
+
+def sse_token_limit_response(message="Token limit reached. Please wait until subscription renewal."):
+    return sse_error_response(message)
