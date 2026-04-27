@@ -19,6 +19,13 @@ from dotenv import load_dotenv
 import sys, re
 from django.utils.encoding import force_str
 from langchain_core.chat_history import InMemoryChatMessageHistory
+from accounts.api.access import (
+    authenticate_request_user,
+    get_user_billing_profile,
+    model_requires_pro,
+    sse_error_response,
+    sse_token_limit_response,
+)
 
 load_dotenv()
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
@@ -99,6 +106,11 @@ def create_chat_view(request):
 def chat_view(request):
     if request.method != "GET":
         return JsonResponse({"error": "GET required for streaming"}, status=405)
+
+    user = authenticate_request_user(request, allow_query_token=True)
+    if not user:
+        return sse_error_response("Authentication required. Please sign in again.")
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
     
     query = request.GET.get("text", "").strip()
     model_id = request.GET.get("model", "gpt5-nano")
@@ -107,6 +119,12 @@ def chat_view(request):
     
     if not query:
         return JsonResponse({"error": "Empty message"}, status=400)
+
+    if model_requires_pro(model_id):
+        if not billing_profile or not billing_profile.is_paid:
+            return sse_error_response("Upgrade to Pro to use this model.")
+        if billing_profile.token_total_used >= getattr(settings, "PAID_MONTHLY_TOKEN_QUOTA", 0):
+            return sse_token_limit_response("Token limit reached. Please wait until subscription renewal.")
     
     chat_title = None
     if is_first_message:
@@ -118,9 +136,7 @@ def chat_view(request):
             chat_title = query[:30] + "..." if len(query) > 30 else query
 
     resolved_model_id = resolve_normal_chat_model(query, model_id)
-    print(f"Requested model: {model_id}")
-    print(f"Resolved model: {resolved_model_id}")
-    
+
     # No automatic RAG here — agent decides via tool
     
     def event_stream():
@@ -154,7 +170,13 @@ def chat_view(request):
                 return
             
             # Normal chat — agent handles RAG via tool
-            for chunk in get_bot_response(query, resolved_model_id, chat_id):
+            for chunk in get_bot_response(
+                query,
+                resolved_model_id,
+                chat_id,
+                user=user,
+                track_tokens=model_requires_pro(resolved_model_id),
+            ):
                 if chunk.strip():
                     yield f"data: {chunk.replace('\n', '\\n')}\n\n"
                     import time

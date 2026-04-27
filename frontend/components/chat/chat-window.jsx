@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import SparklesIcon from "@heroicons/react/24/outline/SparklesIcon";
 import Image from "next/image";
 import { OpenAI, Gemini, Claude, Mistral, DeepSeek } from '@lobehub/icons';
@@ -13,6 +14,16 @@ import { useNotifications } from '../../utils/useNotifications';
 import rehypeRaw from 'rehype-raw';
 import { MODEL_OPTIONS, getDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
 import { API_URL, fetchWithAuth, getAccessToken } from "../../utils/auth";
+import { useAuth } from "../auth/auth-context";
+import {
+  canUseAgentForPrompt,
+  canUseModelId,
+  getAgentBillingBlockMessage,
+  hasTokenLimitReached,
+  isProModelId,
+  sanitizeModelIdForBilling,
+  TOKEN_LIMIT_REACHED_MESSAGE,
+} from "../../utils/plan-access";
 
 export default function ChatWindow({
   chatId,
@@ -23,6 +34,9 @@ export default function ChatWindow({
   onSetLoading,
   selectedAgent = null
 }) {
+  const router = useRouter();
+  const { user, loading: userLoading, refreshBilling } = useAuth();
+  const billing = user?.billing || null;
   
 
   const [messages, setMessages] = useState(propMessages);
@@ -46,7 +60,7 @@ export default function ChatWindow({
     "deepseek-chat": <DeepSeek.Color size={16} />,
     "claude-3 haiku": <Claude.Color size={16} />,
     "gpt5-nano": <OpenAI size={16} />,
-    "gemini-2.5-flash-image": <Gemini.Color size={16} />,
+    
     "mistral nemo": <Mistral.Color size={16} />,
   };
 
@@ -56,9 +70,10 @@ export default function ChatWindow({
     "deepseek-chat": "DeepSeek",
     "claude-3 haiku": "Claude",
     "gpt5-nano": "GPT-5",
-    "gemini-2.5-flash-image": "Gemini Vision",
+    
     "mistral nemo": "Mistral",
   };
+
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -91,13 +106,30 @@ export default function ChatWindow({
 
   const buildCricketUrl = useCallback((text, chatIdForRequest) => {
     const encodedChatId = encodeURIComponent(chatIdForRequest || '');
-    return `http://127.0.0.1:8000/api/cricket_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
+    const accessToken = encodeURIComponent(getAccessToken() || '');
+    return `http://127.0.0.1:8000/api/cricket_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}&access_token=${accessToken}`;
   }, []);
 
   const buildPoliticsUrl = useCallback((text, chatIdForRequest) => {
     const encodedChatId = encodeURIComponent(chatIdForRequest || '');
-    return `http://127.0.0.1:8000/api/politics_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}`;
+    const accessToken = encodeURIComponent(getAccessToken() || '');
+    return `http://127.0.0.1:8000/api/politics_agent/stream/?text=${encodeURIComponent(text)}&chat_id=${encodedChatId}&access_token=${accessToken}`;
   }, []);
+
+  const redirectToPricingForModel = useCallback((modelId) => {
+    if (hasTokenLimitReached(billing)) {
+      toast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      refreshBilling();
+      setShowModelDialog(false);
+      return;
+    }
+
+    const model = MODEL_OPTIONS.find((option) => option.id === modelId);
+    const modelName = model?.name || "This model";
+    toast.info(`${modelName} is available on Pro. Upgrade to continue.`);
+    setShowModelDialog(false);
+    router.push("/pricing");
+  }, [billing, refreshBilling, router]);
 
   // Send stop signal to backend — fire and forget
   const sendStopSignalToBackend = useCallback((chatIdToStop, chatState) => {
@@ -176,6 +208,23 @@ export default function ChatWindow({
     chatModelMapRef.current.set(chatId, initialModel);
     setSelectedModel(initialModel);
   }, [chatId, selectedAgent]);
+
+  useEffect(() => {
+    if (userLoading) return;
+    if (selectedAgent) return;
+
+    const sanitizedModelId = sanitizeModelIdForBilling(selectedModel, billing);
+    if (sanitizedModelId !== selectedModel) {
+      setSelectedModel(sanitizedModelId);
+
+      if (chatId) {
+        chatModelMapRef.current.set(chatId, sanitizedModelId);
+      } else {
+        draftModelRef.current = sanitizedModelId;
+        draftManualRef.current = false;
+      }
+    }
+  }, [billing, chatId, selectedAgent, selectedModel, userLoading]);
 
   useEffect(() => {
     const unsubscribe = subscribeDefaultModel((modelId) => {
@@ -619,7 +668,8 @@ export default function ChatWindow({
     url = buildPoliticsUrl('stop', liveUpdateChatId);
   } 
   else {
-    url = `http://127.0.0.1:8000/api/chat/stream/?text=stop&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}`;
+    const accessToken = encodeURIComponent(getAccessToken() || '');
+    url = `http://127.0.0.1:8000/api/chat/stream/?text=stop&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&access_token=${accessToken}`;
   }
 
   if (onSetLoading) onSetLoading(true);
@@ -669,18 +719,37 @@ export default function ChatWindow({
         return;
       }
 
-      const hasText = input.trim().length > 0;
+      const rawInput = input.trim();
+      const agentBlockMessage = getAgentBillingBlockMessage(selectedAgent, billing, rawInput);
+      if (agentBlockMessage) {
+        setStatusMsg(agentBlockMessage);
+        if (agentBlockMessage === TOKEN_LIMIT_REACHED_MESSAGE) {
+          toast.info(agentBlockMessage);
+          await refreshBilling();
+        } else {
+          toast.info(agentBlockMessage);
+          router.push("/pricing");
+        }
+        return;
+      }
+
+      if (!selectedAgent && !canUseModelId(selectedModel, billing)) {
+        redirectToPricingForModel(selectedModel);
+        return;
+      }
+
+      const hasText = rawInput.length > 0;
       const hasFiles = attachedFiles.length > 0;
       if (!hasText && !hasFiles) return;
       dismissPendingDrafts();
 
       const userMsgId = generateUniqueId();
-      const userMsg = {
-        id: userMsgId,
-        role: "user",
-        text: input.trim(),
-        files: attachedFiles.map(file => ({ name: file.name, size: file.size, type: getFileType(file.name) }))
-      };
+        const userMsg = {
+          id: userMsgId,
+          role: "user",
+          text: rawInput,
+          files: attachedFiles.map(file => ({ name: file.name, size: file.size, type: getFileType(file.name) }))
+        };
 
       currentAssistantIdRef.current = generateUniqueId();
       setMessages(prev => [...prev, userMsg]);
@@ -708,11 +777,16 @@ export default function ChatWindow({
 
       if (currentFiles.length > 0) await uploadFilesIfAny(currentChatId);
 
-      const apiText = hasText ? input.trim() : "[User sent files]";
+        const apiText = hasText ? rawInput : "[User sent files]";
+        const shouldRefreshBillingAfterResponse = Boolean(
+          (selectedAgent && canUseAgentForPrompt(selectedAgent, billing, apiText)) ||
+          (!selectedAgent && isProModelId(selectedModel))
+        );
 
       let url;
       if (selectedAgent && !selectedAgent.isBuiltIn) {
-        url = `http://127.0.0.1:8000/api/custom_agents/stream/?chat_id=${encodeURIComponent(currentChatId)}&agent_id=${encodeURIComponent(selectedAgent.id)}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(selectedAgent.model || "gemini-flashlite")}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(selectedAgent.customPrompt || "")}&text=${encodeURIComponent(apiText)}`;
+        const accessToken = encodeURIComponent(getAccessToken() || '');
+        url = `http://127.0.0.1:8000/api/custom_agents/stream/?chat_id=${encodeURIComponent(currentChatId)}&agent_id=${encodeURIComponent(selectedAgent.id)}&purpose=${encodeURIComponent(selectedAgent.purpose || "general")}&model=${encodeURIComponent(selectedAgent.model || "gemini-flashlite")}&is_auto=${selectedAgent.isAutoSelected ? "true" : "false"}&system_prompt=${encodeURIComponent(selectedAgent.customPrompt || "")}&text=${encodeURIComponent(apiText)}&access_token=${accessToken}`;
       } else if (selectedAgent?.id === 'builtin-cricket') {
         url = buildCricketUrl(apiText, currentChatId);
       } else if (selectedAgent?.id === 'builtin-politics') {
@@ -720,19 +794,20 @@ export default function ChatWindow({
       } else if (selectedAgent?.id === 'builtin-comsats') {
         url = buildComsatsUrl(apiText, currentChatId);
       } else {
-        url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(apiText)}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}`;
+        const accessToken = encodeURIComponent(getAccessToken() || '');
+        url = `http://127.0.0.1:8000/api/chat/stream/?text=${encodeURIComponent(apiText)}&model=${encodeURIComponent(selectedModel)}&chat_id=${encodeURIComponent(currentChatId || '')}&is_first_message=${isFirstMessage}&access_token=${accessToken}`;
       }
 
-      if (onSetLoading) onSetLoading(true);
-      setTimeout(() => { makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url); }, 100);
-    } catch (error) {
-      console.error("Failed to start chat:", error);
-      setStatusMsg("Unable to start chat right now.");
-      onSetLoading?.(false);
-    }
-  }, [input, attachedFiles, onNewMessage, selectedModel, onSetLoading, selectedAgent, buildCricketUrl, buildPoliticsUrl, buildComsatsUrl, dismissPendingDrafts]);
+        if (onSetLoading) onSetLoading(true);
+        setTimeout(() => { makeAPIRequest(apiText, currentChatId, currentAssistantIdRef.current, url, shouldRefreshBillingAfterResponse); }, 100);
+      } catch (error) {
+        console.error("Failed to start chat:", error);
+        setStatusMsg("Unable to start chat right now.");
+        onSetLoading?.(false);
+      }
+    }, [attachedFiles, billing, buildComsatsUrl, buildCricketUrl, buildPoliticsUrl, dismissPendingDrafts, input, onNewMessage, onSetLoading, redirectToPricingForModel, refreshBilling, router, selectedAgent, selectedModel]);
 
-  const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url) => {
+  const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url, shouldRefreshBillingAfterResponse = false) => {
     if (!targetChatId) return;
 
     console.log("🔗 Starting stream for chat:", targetChatId, url);
@@ -836,6 +911,9 @@ export default function ChatWindow({
         // Always clear loading — even for background chats (clears the spinner dot in sidebar)
         onSetLoading?.(false);
         chatStatesRef.current.delete(targetChatId);
+        if (shouldRefreshBillingAfterResponse) {
+          refreshBilling();
+        }
         return;
       }
 
@@ -854,13 +932,23 @@ export default function ChatWindow({
       }
 
       if (data.startsWith("[ERROR]")) {
+        const errorMessage = data.replace("[ERROR]", "");
         console.error("❌ Stream error:", data);
         clearTimeout(inactivityTimeout);
         flushChatStateToParent(targetChatId);
         es.close();
         activeStreamsRef.current.delete(targetChatId);
         chatStatesRef.current.delete(targetChatId);
-        if (isActiveChat) { setStatusMsg(data.replace("[ERROR]", "")); onSetLoading?.(false); }
+        if (errorMessage === TOKEN_LIMIT_REACHED_MESSAGE) {
+          toast.info(errorMessage);
+          refreshBilling();
+        } else if (errorMessage.toLowerCase().includes("upgrade to pro")) {
+          toast.info(errorMessage);
+          router.push("/pricing");
+        } else if (isActiveChat) {
+          toast.error(errorMessage);
+        }
+        if (isActiveChat) { setStatusMsg(errorMessage); onSetLoading?.(false); }
         return;
       }
 
@@ -1038,7 +1126,7 @@ export default function ChatWindow({
     };
 
     es.onopen = () => console.log("🔗 SSE opened:", targetChatId);
-  }, [extractEmailDraft, onNewMessage, onSetLoading, messages, selectedAgent, selectedModel, flushChatStateToParent, notifyMessage]);
+  }, [extractEmailDraft, flushChatStateToParent, messages, notifyMessage, onNewMessage, onSetLoading, refreshBilling, router, selectedAgent, selectedModel]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1058,6 +1146,11 @@ export default function ChatWindow({
   const handleFileSelect = useCallback((e) => { const files = Array.from(e.target.files); if (files.length > 0) setAttachedFiles(prev => [...prev, ...files]); e.target.value = ''; }, []);
   const removeFile = useCallback((index) => { setAttachedFiles(prev => prev.filter((_, i) => i !== index)); }, []);
   const handleModelSelect = useCallback((modelId) => {
+    if (!canUseModelId(modelId, billing)) {
+      redirectToPricingForModel(modelId);
+      return;
+    }
+
     setSelectedModel(modelId);
 
     if (!selectedAgent) {
@@ -1070,7 +1163,7 @@ export default function ChatWindow({
     }
 
     setShowModelDialog(false);
-  }, [chatId, selectedAgent]);
+  }, [billing, chatId, redirectToPricingForModel, selectedAgent]);
   const getCurrentModel = useCallback(() => (
     aiModels.find(model => model.id === selectedModel) ||
     aiModels.find(model => model.id === getDefaultModelId()) ||
@@ -1340,6 +1433,24 @@ return (
               rows="1"
               disabled={isLoading || isAgentDeactivated || isLiveUpdatesActive || isSendingDraftEmail}
             />
+
+          <button
+              type="button"
+              onClick={toggleInputExpansion}
+              className={`hidden xs:flex flex-shrink-0 p-1.5 sm:p-2 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors ${
+                isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
+              }`}
+              title={isInputExpanded ? "Collapse" : "Expand"}
+              disabled={isLiveUpdatesActive}
+            >
+              <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                {isInputExpanded ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                )}
+              </svg>
+            </button>    
           </div>
 
           <div className="flex items-center justify-between">
@@ -1452,7 +1563,14 @@ return (
                   >
                     <span className="flex-shrink-0 text-lg sm:text-xl">{model.icon}</span>
                     <div className="flex flex-col items-start flex-1 min-w-0">
-                      <span className="font-medium text-gray-900 text-sm truncate w-full text-left">{model.name}</span>
+                      <div className="flex w-full items-center gap-2">
+                        <span className="font-medium text-gray-900 text-sm truncate text-left">{model.name}</span>
+                        {isProModelId(model.id) && (
+                          <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-700">
+                            Pro
+                          </span>
+                        )}
+                      </div>
                       <span className="text-xs text-gray-500 truncate w-full text-left">{model.description}</span>
                     </div>
                     {selectedModel === model.id && (

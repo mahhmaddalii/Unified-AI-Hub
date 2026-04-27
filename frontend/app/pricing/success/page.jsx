@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "../../../components/auth/auth-context";
 import { API_URL, fetchWithAuth } from "../../../utils/auth";
 import {
   clearPendingBillingPlan,
+  clearPendingStripeCheckout,
   setBillingCache,
 } from "../../../utils/billing";
 
@@ -19,9 +20,11 @@ function sleep(ms) {
 }
 
 function PricingSuccessContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
   const { refreshUser } = useAuth();
+  const [isRedirecting, setIsRedirecting] = useState(!sessionId);
   const [state, setState] = useState({
     loading: true,
     error: "",
@@ -33,11 +36,8 @@ function PricingSuccessContent() {
 
     const verifyCheckout = async () => {
       if (!sessionId) {
-        setState({
-          loading: false,
-          error: "Missing Stripe id.",
-          billing: null,
-        });
+        setIsRedirecting(true);
+        router.replace("/pricing");
         return;
       }
 
@@ -79,6 +79,11 @@ function PricingSuccessContent() {
           }
 
           if (!response.ok) {
+            if (response.status === 400 || response.status === 404) {
+              setIsRedirecting(true);
+              router.replace("/pricing");
+              return;
+            }
             throw new Error(
               data?.error || "Unable to verify your Stripe checkout session.",
             );
@@ -88,6 +93,7 @@ function PricingSuccessContent() {
             setBillingCache(data.billing);
           }
           clearPendingBillingPlan();
+          clearPendingStripeCheckout();
           await refreshUser();
           if (!cancelled) {
             setState({
@@ -122,7 +128,11 @@ function PricingSuccessContent() {
     return () => {
       cancelled = true;
     };
-  }, [refreshUser, sessionId]);
+  }, [refreshUser, router, sessionId]);
+
+  if (isRedirecting) {
+    return null;
+  }
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-16 flex items-center justify-center">

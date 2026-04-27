@@ -2,6 +2,7 @@ import json
 import secrets
 import string
 import time
+from django.conf import settings
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from accounts.api.chat.gemini import chat_histories
@@ -10,6 +11,15 @@ from .custom_agent_chat import (
     get_agent_id_from_chat_id,
     get_custom_agent_response,
     get_or_create_custom_agent_chat,
+)
+from accounts.api.access import (
+    authenticate_request_user,
+    get_user_billing_profile,
+    json_auth_required_response,
+    json_pro_required_response,
+    json_token_limit_response,
+    sse_error_response,
+    sse_token_limit_response,
 )
 
 
@@ -23,6 +33,15 @@ def create_custom_agent_id_view(request):
     if request.method != 'POST':
         return JsonResponse({"error": "POST required"}, status=405)
 
+    user = authenticate_request_user(request)
+    if not user:
+        return json_auth_required_response()
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    if not billing_profile or not billing_profile.is_paid:
+        return json_pro_required_response("Upgrade to Pro to create custom agents.")
+    if billing_profile.token_total_used >= settings.PAID_MONTHLY_TOKEN_QUOTA:
+        return json_token_limit_response("Token limit reached. Please wait until subscription renewal.")
+
     return JsonResponse({"agent_id": _generate_custom_agent_id()})
 
 
@@ -30,6 +49,15 @@ def create_custom_agent_id_view(request):
 def get_or_create_custom_agent_chat_view(request):
     if request.method != 'POST':
         return JsonResponse({"error": "POST required"}, status=405)
+
+    user = authenticate_request_user(request)
+    if not user:
+        return json_auth_required_response()
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    if not billing_profile or not billing_profile.is_paid:
+        return json_pro_required_response("Upgrade to Pro to chat with custom agents.")
+    if billing_profile.token_total_used >= settings.PAID_MONTHLY_TOKEN_QUOTA:
+        return json_token_limit_response("Token limit reached. Please wait until subscription renewal.")
 
     try:
         payload = json.loads(request.body or "{}")
@@ -48,6 +76,15 @@ def get_or_create_custom_agent_chat_view(request):
 def custom_agent_chat_view(request):
     if request.method != 'GET':
         return JsonResponse({"error": "GET required for streaming"}, status=405)
+
+    user = authenticate_request_user(request, allow_query_token=True)
+    if not user:
+        return sse_error_response("Authentication required. Please sign in again.")
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    if not billing_profile or not billing_profile.is_paid:
+        return sse_error_response("Upgrade to Pro to use custom agents.")
+    if billing_profile.token_total_used >= settings.PAID_MONTHLY_TOKEN_QUOTA:
+        return sse_token_limit_response("Token limit reached. Please wait until subscription renewal.")
     
     agent_id = request.GET.get("agent_id", "").strip()
     chat_id = request.GET.get("chat_id", "").strip()
@@ -85,7 +122,9 @@ def custom_agent_chat_view(request):
                 model_selection=model_selection,
                 is_auto_selected=is_auto_selected,
                 custom_prompt=custom_prompt,
-                chat_id=chat_id
+                chat_id=chat_id,
+                user=user,
+                track_tokens=True,
             ):
                 if chunk:
                     escaped_chunk = chunk.replace('\n', '\\n')

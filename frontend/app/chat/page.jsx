@@ -10,13 +10,22 @@ import { AgentProvider, useAgents } from "../../components/agents/AgentContext";
 import { ToastContainer } from 'react-toastify';
 import { toastContainerProps, toastStyles, showToast } from '../../utils/toast';
 import { AuthProvider, useAuth } from "../../components/auth/auth-context";
+import { API_URL, fetchWithAuth } from "../../utils/auth";
+import {
+  areAgentsLockedForBilling,
+  areCustomAgentsLockedForBilling,
+  hasTokenLimitReached,
+  TOKEN_LIMIT_REACHED_MESSAGE,
+} from "../../utils/plan-access";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = API_URL;
 
 // Inner component that uses AgentContext
 function ChatPageContent() {
   const router = useRouter();
-  const { user, loading: userLoading } = useAuth();
+  const { user, loading: userLoading, refreshBilling } = useAuth();
+  const billing = user?.billing || null;
+  const agentsLocked = !userLoading && areAgentsLockedForBilling(billing);
 
   // ========== GET AGENT STATE FROM CONTEXT ONLY ==========
   const {
@@ -218,32 +227,54 @@ function ChatPageContent() {
       return { chatId: cachedChatId, isNew: false };
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/custom_agents/get-or-create-chat/`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/get-or-create-chat/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      credentials: "include",
       body: JSON.stringify({ agent_id: agentId })
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to create custom agent chat: ${response.status}`);
-    }
+    const data = await response.json().catch(() => null);
 
-    const data = await response.json();
+    if (!response.ok) {
+      if (response.status === 403) {
+        await refreshBilling();
+      }
+      throw new Error(data?.error || `Failed to create custom agent chat: ${response.status}`);
+    }
     agentChatIdsRef.current.set(agentId, data.chat_id);
     return {
       chatId: data.chat_id,
       isNew: data.is_new
     };
-  }, []);
+  }, [refreshBilling]);
 
   const getOrCreateAgentChat = useCallback(async (agent) => {
     if (!agent) return null;
 
     if (!agent.isBuiltIn && agent.status !== 'active') {
       showToast.warning(`${agent.name} is deactivated. Please activate it first.`);
+      return null;
+    }
+
+    if (!agent.isBuiltIn && areCustomAgentsLockedForBilling(billing)) {
+      const message = billing?.isPaid
+        ? TOKEN_LIMIT_REACHED_MESSAGE
+        : "Custom agents are available on Pro. Upgrade to continue.";
+      if (billing?.isPaid) {
+        await refreshBilling();
+        showToast.info(message);
+      } else {
+        showToast.info(message);
+        router.push("/pricing");
+      }
+      return null;
+    }
+
+    if (agent.id === "builtin-comsats" && hasTokenLimitReached(billing)) {
+      await refreshBilling();
+      showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
       return null;
     }
 
@@ -295,7 +326,7 @@ function ChatPageContent() {
     }
 
     return newChat;
-  }, [chats, createBackendChat, fetchOrCreateAgentChatId]);
+  }, [billing, chats, createBackendChat, fetchOrCreateAgentChatId, refreshBilling, router]);
 
   const createNewChat = useCallback(async (firstMessage, agentId = null) => {
     const newChatId = await createBackendChat();
@@ -382,6 +413,12 @@ function ChatPageContent() {
   // ========== AGENT EVENT HANDLERS ==========
 
   const handleAgentSelect = useCallback(async (agent) => {
+    if (agentsLocked) {
+      showToast.info("AI agents are available on Pro. Upgrade to continue.");
+      router.push("/pricing");
+      return;
+    }
+
     try {
       pendingAgentSelectionRef.current = agent?.id || null;
       let resolvedAgent = agent;
@@ -444,9 +481,13 @@ function ChatPageContent() {
     } catch (error) {
       pendingAgentSelectionRef.current = null;
       console.error("Failed to open agent chat:", error);
-      showToast.error(`Unable to open chat for ${agent.name}.`);
+      if ((error?.message || "") === TOKEN_LIMIT_REACHED_MESSAGE) {
+        showToast.info(error.message);
+      } else {
+        showToast.error(error?.message || `Unable to open chat for ${agent.name}.`);
+      }
     }
-  }, [isMobile, getOrCreateAgentChat, contextSetSelectedAgent, chatMessages, ensureCustomAgentUsesBackendId]);
+  }, [agentsLocked, chatMessages, contextSetSelectedAgent, ensureCustomAgentUsesBackendId, getOrCreateAgentChat, isMobile, router]);
 
   const handleAgentCreated = useCallback((newAgent) => {
     console.log("Agent created in parent:", newAgent);
@@ -485,6 +526,12 @@ function ChatPageContent() {
   // ========== OTHER HANDLERS ==========
 
   const handleAgentsButtonClick = useCallback((openCreateModal = false) => {
+    if (agentsLocked) {
+      showToast.info("Custom and domain agents are available on Pro. Upgrade to continue.");
+      router.push("/pricing");
+      return;
+    }
+
     console.log("📱 PAGE: Agents button clicked, openCreateModal:", openCreateModal);
 
     setShowAgentDashboard(true);
@@ -498,7 +545,7 @@ function ChatPageContent() {
       contextSetEditingAgent(null);
       contextSetIsCreatingAgent(true);
     }
-  }, [isMobile, contextSetEditingAgent, contextSetIsCreatingAgent]);
+  }, [agentsLocked, contextSetEditingAgent, contextSetIsCreatingAgent, isMobile, router]);
 
   const prepareNewChat = useCallback(() => {
     console.log("💬 PAGE: Preparing new chat");
@@ -540,6 +587,11 @@ function ChatPageContent() {
     if (message.role === "user") {
       // ─── Agent mode - use stable chat ───
       if (contextSelectedAgent) {
+        if (agentsLocked) {
+          showToast.info("AI agents are available on Pro. Upgrade to continue.");
+          router.push("/pricing");
+          return { chatId: null, setLoading: false };
+        }
 
         // 🟢 NEW: Check if the selected agent is active
         if (!contextSelectedAgent.isBuiltIn && contextSelectedAgent.status !== 'active') {
@@ -626,12 +678,14 @@ function ChatPageContent() {
   }, [
     createNewChat,
     addMessageToChat,
+    agentsLocked,
     chatMessages,
     setChatLoading,
     contextSelectedAgent,
     chats,
     getOrCreateAgentChat,
-    allAgents
+    allAgents,
+    router
   ]);
 
   const updateChats = useCallback((newChats) => {

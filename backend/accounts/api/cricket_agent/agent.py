@@ -5,6 +5,7 @@ from datetime import datetime
 
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from django.core.cache import cache
@@ -16,6 +17,7 @@ from .tools import (
     livescore6_specific_tool,
     tavily_cricket
 )
+from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 
 # ────────────────────────────────────────────────
 # LLM — grok-4.1-fast via OpenRouter
@@ -155,7 +157,7 @@ chat_history = []
 
 # backend/accounts/api/cricket_agent/agent.py
 
-def get_cricket_response(query: str, thread_id="cricket_agent_chat"):
+def get_cricket_response(query: str, thread_id="cricket_agent_chat", user=None, track_tokens=False):
     global chat_history
 
     q = query.lower().strip()
@@ -174,16 +176,18 @@ def get_cricket_response(query: str, thread_id="cricket_agent_chat"):
             if "no matching match" in update.lower() or "error" in update.lower():
                 update = tavily_cricket(f"{match_query} latest live score OR current result OR update")
             
-            return update
+            return update, None
 
     # Normal agent flow for regular queries
     try:
-        result = agent_executor.invoke({
-            "input": query,
-            "chat_history": chat_history
-        })
+        with get_openai_callback() as callback:
+            result = agent_executor.invoke({
+                "input": query,
+                "chat_history": chat_history
+            })
 
         answer = result["output"].strip()
+        usage = extract_token_usage(callback)
 
         # Store in chat history
         chat_history.append(HumanMessage(content=query))
@@ -192,7 +196,14 @@ def get_cricket_response(query: str, thread_id="cricket_agent_chat"):
         if len(chat_history) > 10:
             chat_history = chat_history[-10:]
 
-        return answer
+        if track_tokens and user:
+            try:
+                profile = get_or_create_billing_profile(user)
+                record_token_usage(profile, **usage)
+            except Exception as usage_error:
+                print(f"[WARN] Cricket token usage recording failed: {usage_error}")
+
+        return answer, usage
 
     except Exception as e:
         print(f"Agent error: {type(e).__name__}: {str(e)}")

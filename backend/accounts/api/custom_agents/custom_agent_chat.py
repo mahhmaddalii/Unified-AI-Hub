@@ -3,12 +3,14 @@ import re
 from uuid import uuid4
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain_tavily import TavilySearch
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 from accounts.api.chat.documents import load_vectorstore
 from accounts.api.chat.gemini import chat_histories, chat_lock
+from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 from langchain_core.chat_history import InMemoryChatMessageHistory
 
 load_dotenv()
@@ -284,7 +286,17 @@ document_search_tool = Tool.from_function(
 )
 
 
-def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is_auto_selected, custom_prompt="", chat_id=None):
+def get_custom_agent_response(
+    user_input,
+    agent_id,
+    purpose,
+    model_selection,
+    is_auto_selected,
+    custom_prompt="",
+    chat_id=None,
+    user=None,
+    track_tokens=False,
+):
     try:
         if not chat_id:
             raise ValueError("chat_id is required for custom agent chats")
@@ -325,13 +337,26 @@ def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is
         print(f"Custom prompt: {custom_prompt}")
         
         # Run agent (tools are called here)
-        result = agent_executor.invoke({
-            "input": user_input,
-            "chat_history": chat_history.messages,
-            "agent_scratchpad": []
-        })
+        with get_openai_callback() as callback:
+            result = agent_executor.invoke({
+                "input": user_input,
+                "chat_history": chat_history.messages,
+                "agent_scratchpad": []
+            })
         
         final_answer = result["output"]
+        usage = extract_token_usage(callback)
+
+        if track_tokens and user:
+            try:
+                profile = get_or_create_billing_profile(user)
+                record_token_usage(profile, **usage)
+                print(
+                    f"Token usage recorded for custom agent {agent_id}: "
+                    f"in={usage['input_tokens']} out={usage['output_tokens']} total={usage['total_tokens']}"
+                )
+            except Exception as usage_error:
+                print(f"[WARN] Token usage recording failed for custom agent {agent_id}: {usage_error}")
         
         # Stream the final answer word-by-word
         words = final_answer.split(" ")

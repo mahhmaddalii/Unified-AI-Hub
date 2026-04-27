@@ -10,6 +10,7 @@ import {
   clearPendingBillingPlan,
   getBillingCache,
   getPendingBillingPlan,
+  setPendingStripeCheckout,
   setBillingCache,
   setPendingBillingPlan,
 } from "../../utils/billing";
@@ -176,6 +177,7 @@ export default function PricingPage() {
 
       if (data?.checkoutUrl) {
         clearPendingBillingPlan();
+        setPendingStripeCheckout();
         window.location.href = data.checkoutUrl;
         return;
       }
@@ -333,7 +335,7 @@ export default function PricingPage() {
                   />
                 </svg>
                 <span className="text-gray-700 dark:text-gray-300">
-                  500 tokens per month
+                  Unlimited free-model usage
                 </span>
               </li>
               <li className="flex items-start transition-all duration-300 hover:translate-x-1 delay-75">
@@ -351,7 +353,7 @@ export default function PricingPage() {
                   />
                 </svg>
                 <span className="text-gray-700 dark:text-gray-300">
-                  1 chatbot
+                  No token quota on free models
                 </span>
               </li>
               <li className="flex items-start transition-all duration-300 hover:translate-x-1 delay-100">
@@ -369,7 +371,7 @@ export default function PricingPage() {
                   />
                 </svg>
                 <span className="text-gray-700 dark:text-gray-300">
-                  10 stored chats
+                  Access to free chat models only
                 </span>
               </li>
               <li className="flex items-start transition-all duration-300 hover:translate-x-1 delay-150">
@@ -387,7 +389,7 @@ export default function PricingPage() {
                   />
                 </svg>
                 <span className="text-gray-700 dark:text-gray-300">
-                  Basic model access
+                  Upgrade anytime for paid models and agents
                 </span>
               </li>
             </ul>

@@ -1,5 +1,6 @@
 from langchain.chat_models import init_chat_model
 from langchain_tavily import TavilySearch
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 from threading import Lock
 from uuid import uuid4
 from .documents import load_vectorstore
+from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 
 # -------------------- Load Environment Variables --------------------
 load_dotenv()
@@ -20,7 +22,10 @@ MODEL_MAP = {
     "deepseek-chat": "deepseek/deepseek-chat",
     "claude-3 haiku": "anthropic/claude-3-haiku",
     "mistral nemo": "mistralai/mistral-nemo",
-    "llama guard 4": "meta-llama/llama-4-maverick"
+    "llama guard 4": "meta-llama/llama-3-70b-instruct",
+    "gpt-oss-120b": "openai/gpt-oss-120b:free",
+    "models-router": "openrouter/free"
+    
 }
 
 IMAGE_GENERATION_MODEL = "gemini-2.5-flash-image"
@@ -367,7 +372,7 @@ def get_chat_history(chat_id=None):
 
 
 # -------------------- Streaming Bot Response Function --------------------
-def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
+def get_bot_response(user_input: str, model_id: str, chat_id: str = None, user=None, track_tokens=False):
     try:
         chat_id, chat_history = get_chat_history(chat_id)
         resolved_model_id = resolve_normal_chat_model(user_input, model_id)
@@ -390,13 +395,26 @@ def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
         print(f"Resolved model: {resolved_model_id}")
         
         # Run the agent (tool calling happens here)
-        result = agent_executor.invoke({
-            "input": user_input,
-            "chat_history": chat_history.messages,
-            "agent_scratchpad": []
-        })
+        with get_openai_callback() as callback:
+            result = agent_executor.invoke({
+                "input": user_input,
+                "chat_history": chat_history.messages,
+                "agent_scratchpad": []
+            })
         
         final_answer = result["output"]
+        usage = extract_token_usage(callback)
+
+        if track_tokens and user:
+            try:
+                profile = get_or_create_billing_profile(user)
+                record_token_usage(profile, **usage)
+                print(
+                    f"Token usage recorded for chat {chat_id}: "
+                    f"in={usage['input_tokens']} out={usage['output_tokens']} total={usage['total_tokens']}"
+                )
+            except Exception as usage_error:
+                print(f"[WARN] Token usage recording failed for chat {chat_id}: {usage_error}")
         
         # stream final answer word-by-word
         words = final_answer.split(" ")

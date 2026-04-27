@@ -2,11 +2,18 @@
 import time
 import re
 from datetime import datetime
+from django.conf import settings
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 
+from accounts.api.access import (
+    authenticate_request_user,
+    get_user_billing_profile,
+    sse_error_response,
+    sse_token_limit_response,
+)
 from accounts.api.domain_agent_sessions import get_or_create_domain_thread_id
 from .agent import get_cricket_response, reset_cricket_chat
 from .tools import livescore6_specific_match
@@ -46,9 +53,32 @@ def format_initial_update(full_update):
             new_lines.append(line)
     return '\n'.join(new_lines)
 
+
+def is_live_update_request(query: str) -> bool:
+    q_lower = (query or "").lower().strip()
+    if q_lower in ["stop", "stop updates", "end updates"]:
+        return True
+
+    trigger_phrases = [
+        "keep sending updates for",
+        "keep sending",
+        "automatic updates for",
+        "every minute updates for",
+        "live updates for",
+        "send updates for",
+    ]
+    return any(q_lower.startswith(phrase) for phrase in trigger_phrases)
+
 @csrf_exempt
 @require_GET
 def cricket_stream(request):
+    user = authenticate_request_user(request, allow_query_token=True)
+    if not user:
+        return sse_error_response("Authentication required. Please sign in again.")
+    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    if not billing_profile or not billing_profile.is_paid:
+        return sse_error_response("Upgrade to Pro to use domain agents.")
+
     query = request.GET.get("text", "").strip()
     chat_id = request.GET.get("chat_id", "").strip()
     thread_id = get_or_create_domain_thread_id(
@@ -58,6 +88,8 @@ def cricket_stream(request):
 
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
+    if not is_live_update_request(query) and billing_profile.token_total_used >= settings.PAID_MONTHLY_TOKEN_QUOTA:
+        return sse_token_limit_response("Token limit reached. Please wait until subscription renewal.")
     
     print(f"🏏 Request: {query[:50]}... (chat: {chat_id or 'none'}, thread: {thread_id})")
     
@@ -325,7 +357,9 @@ def cricket_stream(request):
                     # Fall through to regular query
             
             # ─── REGULAR QUERY ───
-            response = get_cricket_response(query, thread_id=thread_id)
+            response = get_cricket_response(query, thread_id=thread_id, user=user, track_tokens=True)
+            if isinstance(response, tuple):
+                response, _usage = response
             
             words = response.split(" ")
             for word in words:
