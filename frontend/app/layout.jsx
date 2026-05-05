@@ -1,4 +1,5 @@
 import '../styles/global.css';
+import { AuthProvider } from "../components/auth/auth-context";
 
 // In your layout.js or page.js
 export const metadata = {
@@ -18,7 +19,9 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

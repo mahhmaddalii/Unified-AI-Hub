@@ -1,15 +1,15 @@
 import os
 import re
-from uuid import uuid4
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain_tavily import TavilySearch
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from accounts.api.chat.documents import load_vectorstore
-from accounts.api.chat.gemini import chat_histories, chat_lock
-from langchain_core.chat_history import InMemoryChatMessageHistory
+from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 
 load_dotenv()
 
@@ -193,32 +193,20 @@ DOCUMENT RULES:
     for purpose, role_prompt in ROLE_PROMPTS.items()
 }
 
-agent_chat_map = {}
-
-
-def get_or_create_custom_agent_chat(agent_id):
-    """Return the single backend-owned chat_id for a custom agent."""
-    existing_chat_id = agent_chat_map.get(agent_id)
-    if existing_chat_id:
-        return existing_chat_id, False
-
-    chat_id = str(uuid4())
-    with chat_lock:
-        existing_chat_id = agent_chat_map.get(agent_id)
-        if existing_chat_id:
-            return existing_chat_id, False
-
-        agent_chat_map[agent_id] = chat_id
-        chat_histories[chat_id] = InMemoryChatMessageHistory()
-
-    return chat_id, True
-
-
-def get_agent_id_from_chat_id(chat_id):
-    for agent_id, mapped_chat_id in agent_chat_map.items():
-        if mapped_chat_id == chat_id:
-            return agent_id
-    return None
+def build_chat_history(history_messages=None):
+    chat_history = []
+    for message in history_messages or []:
+        text = getattr(message, "content_text", "") or ""
+        role = getattr(message, "role", "")
+        if not text:
+            continue
+        if role == "user":
+            chat_history.append(HumanMessage(content=text))
+        elif role == "assistant":
+            chat_history.append(AIMessage(content=text))
+        elif role == "system":
+            chat_history.append(SystemMessage(content=text))
+    return chat_history
 
 #Initialize Model
 def init_custom_agent_model(model_id):
@@ -284,18 +272,22 @@ document_search_tool = Tool.from_function(
 )
 
 
-def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is_auto_selected, custom_prompt="", chat_id=None):
+def get_custom_agent_response(
+    user_input,
+    agent_id,
+    purpose,
+    model_selection,
+    is_auto_selected,
+    custom_prompt="",
+    history_messages=None,
+    user=None,
+    track_tokens=False,
+):
     try:
-        if not chat_id:
-            raise ValueError("chat_id is required for custom agent chats")
-
-        chat_history = chat_histories.get(chat_id)
-        if chat_history is None:
-            raise ValueError("Invalid chat_id for custom agent chat")
-
         model_to_use = get_agent_model(model_selection, purpose, is_auto_selected)
         system_prompt = build_final_system_prompt(purpose, custom_prompt)
         model = init_custom_agent_model(model_to_use)
+        chat_history = build_chat_history(history_messages)
         
         search_tool = TavilySearch(max_results=3)
         tools = [search_tool, document_search_tool]
@@ -315,23 +307,33 @@ def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is
             handle_parsing_errors=True
         )
         
-        chat_history.add_user_message(user_input)
-        
         print(f"=== CUSTOM AGENT CHAT ===")
-        print(f"Chat ID: {chat_id}")
         print(f"Agent ID: {agent_id}")
         print(f"Model: {model_to_use}")
         print(f"Purpose: {purpose}")
         print(f"Custom prompt: {custom_prompt}")
         
         # Run agent (tools are called here)
-        result = agent_executor.invoke({
-            "input": user_input,
-            "chat_history": chat_history.messages,
-            "agent_scratchpad": []
-        })
+        with get_openai_callback() as callback:
+            result = agent_executor.invoke({
+                "input": user_input,
+                "chat_history": chat_history,
+                "agent_scratchpad": []
+            })
         
         final_answer = result["output"]
+        usage = extract_token_usage(callback)
+
+        if track_tokens and user:
+            try:
+                profile = get_or_create_billing_profile(user)
+                record_token_usage(profile, **usage)
+                print(
+                    f"Token usage recorded for custom agent {agent_id}: "
+                    f"in={usage['input_tokens']} out={usage['output_tokens']} total={usage['total_tokens']}"
+                )
+            except Exception as usage_error:
+                print(f"[WARN] Token usage recording failed for custom agent {agent_id}: {usage_error}")
         
         # Stream the final answer word-by-word
         words = final_answer.split(" ")
@@ -340,8 +342,6 @@ def get_custom_agent_response(user_input, agent_id, purpose, model_selection, is
             import time
             time.sleep(0.004) 
         
-        chat_history.add_ai_message(final_answer)
-        
     except Exception as e:
-        print(f"[ERROR] Custom agent {agent_id} chat {chat_id} failed: {str(e)}")
+        print(f"[ERROR] Custom agent {agent_id} failed: {str(e)}")
         yield f"Error: {str(e)}"

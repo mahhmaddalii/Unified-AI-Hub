@@ -16,6 +16,8 @@ import {
 import { useRouter } from "next/navigation";
 import { useAuth } from "../auth/auth-context";
 import { DEFAULT_MODEL_ID, MODEL_OPTIONS, getDefaultModelId, setDefaultModelId, subscribeDefaultModel } from "../../utils/model-preferences";
+import { showToast } from "../../utils/toast";
+import { canUseModelId, hasTokenLimitReached, isProModelId, sanitizeModelIdForBilling, TOKEN_LIMIT_REACHED_MESSAGE } from "../../utils/plan-access";
 
 export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) => {
   const [activeSection, setActiveSection] = useState(initialSection);
@@ -25,7 +27,7 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
   const [defaultModelId, setDefaultModelIdState] = useState(() => getDefaultModelId());
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef(null);
-  const { user, loading: userLoading } = useAuth();
+  const { user, loading: userLoading, refreshBilling } = useAuth();
   
   const router = useRouter();
 
@@ -58,6 +60,26 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [modelMenuOpen]);
 
+  const displayName = user?.name || (userLoading ? "Loading..." : "User");
+  const displayEmail = user?.email || "";
+  const avatarUrl = user?.avatarUrl || null;
+  const billing = user?.billing || null;
+  const isPaid = Boolean(billing?.isPaid);
+  const planLabel = isPaid ? "Pro Plan" : "Free Plan";
+  const selectedModel = MODEL_OPTIONS.find((model) => model.id === defaultModelId) ||
+    MODEL_OPTIONS.find((model) => model.id === DEFAULT_MODEL_ID) ||
+    MODEL_OPTIONS[0];
+
+  useEffect(() => {
+    if (userLoading) return;
+
+    const sanitizedModelId = sanitizeModelIdForBilling(defaultModelId, billing);
+    if (sanitizedModelId !== defaultModelId) {
+      setDefaultModelId(sanitizedModelId);
+      setDefaultModelIdState(sanitizedModelId);
+    }
+  }, [billing, defaultModelId, userLoading]);
+
   if (!isOpen) return null;
 
   const getInitials = (nameValue, emailValue) => {
@@ -71,13 +93,7 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
     return "U";
   };
 
-  const displayName = user?.name || (userLoading ? "Loading..." : "User");
-  const displayEmail = user?.email || "";
-  const avatarUrl = user?.avatarUrl || null;
   const initials = getInitials(displayName, displayEmail);
-  const selectedModel = MODEL_OPTIONS.find((model) => model.id === defaultModelId) ||
-    MODEL_OPTIONS.find((model) => model.id === DEFAULT_MODEL_ID) ||
-    MODEL_OPTIONS[0];
 
   const sections = [
     { id: "general", icon: Cog6ToothIcon, title: "General" },
@@ -144,14 +160,16 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
-                    Pro Plan
+                    {planLabel}
                   </span>
-                  <button 
-                    onClick={handleUpgradePlan}
-                    className="text-xs text-purple-600 hover:text-purple-700 hover:underline"
-                  >
-                    Upgrade
-                  </button>
+                  {!isPaid && (
+                    <button 
+                      onClick={handleUpgradePlan}
+                      className="text-xs text-purple-600 hover:text-purple-700 hover:underline"
+                    >
+                      Upgrade
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -189,6 +207,69 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
             <div className="mt-6 space-y-4">
               {activeSection === "general" && (
                 <div className="space-y-3">
+                  <div className="rounded-xl border border-gray-200 bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          {isPaid ? "Pro Plan Status" : "Plan Status"}
+                        </label>
+                        <p className="text-xs text-gray-500">
+                          {isPaid
+                            ? "Your paid access and monthly token balance."
+                            : "You are currently on the free plan."}
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        isPaid
+                          ? "bg-green-100 text-green-700"
+                          : "bg-gray-100 text-gray-700"
+                      }`}>
+                        {planLabel}
+                      </span>
+                    </div>
+
+                    {isPaid && (
+                      <div className="mt-3 space-y-2">
+                        <div className={`rounded-lg border px-3 py-2 ${
+                          billing?.tokenLimitReached
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-blue-200 bg-blue-50"
+                        }`}>
+                          <div className="flex items-center justify-between gap-3 text-xs">
+                            <span className="text-gray-600">Tokens used</span>
+                            <span className="font-medium text-gray-900">
+                              {billing?.tokenUsage?.total || 0} / {billing?.tokenQuota || 0}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-3 text-xs">
+                            <span className="text-gray-600">Available</span>
+                            <span className="font-medium text-gray-900">
+                              {billing?.tokenRemaining ?? 0}
+                            </span>
+                          </div>
+                        </div>
+
+                        {billing?.currentPeriodEnd && (
+                          <div className="flex items-center justify-between gap-3 text-xs text-gray-600">
+                            <span>Renewal date</span>
+                            <span className="font-medium text-gray-900">
+                              {new Date(billing.currentPeriodEnd).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+
+                        {billing?.tokenResetAt && (
+                          <div className="flex items-center justify-between gap-3 text-xs text-gray-600">
+                            <span>Token reset</span>
+                            <span className="font-medium text-gray-900">
+                              {new Date(billing.tokenResetAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -212,7 +293,7 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Default Model
                     </label>
-                                                                                <div className="relative" ref={modelMenuRef}>
+                      <div className="relative" ref={modelMenuRef}>
                       <button
                         type="button"
                         onClick={() => setModelMenuOpen((open) => !open)}
@@ -236,6 +317,17 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                                 key={model.id}
                                 type="button"
                                 onClick={() => {
+                                  if (!canUseModelId(model.id, billing)) {
+                                    setModelMenuOpen(false);
+                                    if (hasTokenLimitReached(billing)) {
+                                      showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+                                      refreshBilling();
+                                    } else {
+                                      onClose();
+                                      router.push('/pricing');
+                                    }
+                                    return;
+                                  }
                                   setDefaultModelId(model.id);
                                   setDefaultModelIdState(model.id);
                                   setModelMenuOpen(false);
@@ -244,6 +336,11 @@ export const SettingsPanel = ({ isOpen, onClose, initialSection = "general" }) =
                               >
                                 <span className="text-base">{model.icon}</span>
                                 <span className="flex-1 text-left">{model.name}</span>
+                                {isProModelId(model.id) && (
+                                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-700">
+                                    Pro
+                                  </span>
+                                )}
                                 {model.id === defaultModelId && (
                                   <span className="text-purple-600">
                                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">

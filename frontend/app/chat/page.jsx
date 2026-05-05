@@ -10,13 +10,22 @@ import { AgentProvider, useAgents } from "../../components/agents/AgentContext";
 import { ToastContainer } from 'react-toastify';
 import { toastContainerProps, toastStyles, showToast } from '../../utils/toast';
 import { AuthProvider, useAuth } from "../../components/auth/auth-context";
+import { API_URL, fetchWithAuth } from "../../utils/auth";
+import {
+  areAgentsLockedForBilling,
+  areCustomAgentsLockedForBilling,
+  hasTokenLimitReached,
+  TOKEN_LIMIT_REACHED_MESSAGE,
+} from "../../utils/plan-access";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = API_URL;
 
 // Inner component that uses AgentContext
 function ChatPageContent() {
   const router = useRouter();
-  const { user, loading: userLoading } = useAuth();
+  const { user, loading: userLoading, refreshBilling } = useAuth();
+  const billing = user?.billing || null;
+  const agentsLocked = !userLoading && areAgentsLockedForBilling(billing);
 
   // ========== GET AGENT STATE FROM CONTEXT ONLY ==========
   const {
@@ -43,6 +52,36 @@ function ChatPageContent() {
   const agentChatIdsRef = useRef(new Map());
   const pendingAgentSelectionRef = useRef(null);
 
+  const loadPersistedChats = useCallback(async () => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/chat/conversations/`, {
+      method: "GET",
+    });
+    if (!response.ok) {
+      return;
+    }
+
+    const data = await response.json().catch(() => null);
+    const persistedChats = [];
+    const nextMessages = {};
+    agentChatIdsRef.current = new Map();
+
+    for (const conversation of data?.conversations || []) {
+      persistedChats.push({
+        id: conversation.id,
+        name: conversation.name,
+        lastActive: conversation.lastActive,
+        agentId: conversation.agentId || null,
+      });
+      nextMessages[conversation.id] = conversation.messages || [];
+      if (conversation.agentId) {
+        agentChatIdsRef.current.set(conversation.agentId, conversation.id);
+      }
+    }
+
+    setChats(persistedChats);
+    setChatMessages(nextMessages);
+  }, []);
+
   useEffect(() => {
     // Inject custom toast styles
     const style = document.createElement('style');
@@ -59,6 +98,11 @@ function ChatPageContent() {
       router.replace("/login");
     }
   }, [userLoading, user, router]);
+
+  useEffect(() => {
+    if (userLoading || !user) return;
+    loadPersistedChats();
+  }, [loadPersistedChats, user, userLoading]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -117,7 +161,16 @@ function ChatPageContent() {
 
   // ========== CHAT HANDLERS ==========
 
-  const handleDeleteChat = useCallback((chatId) => {
+  const handleDeleteChat = useCallback(async (chatId) => {
+    const deletedChat = chats.find((chat) => chat.id === chatId);
+    try {
+      await fetchWithAuth(`${API_BASE_URL}/api/chat/conversations/${chatId}/`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      console.error("Failed to delete chat:", error);
+    }
+
     if (chatId === activeChatId) {
       setActiveChatId(null);
       latestActiveChatId.current = null;
@@ -139,6 +192,9 @@ function ChatPageContent() {
       delete newMessages[chatId];
       return newMessages;
     });
+    if (deletedChat?.agentId) {
+      agentChatIdsRef.current.delete(deletedChat.agentId);
+    }
   }, [activeChatId, chats, contextSetSelectedAgent]);
 
   const setChatLoading = useCallback((chatId, isLoading) => {
@@ -198,10 +254,10 @@ function ChatPageContent() {
   // ────────────────────────────────────────────────
   // NEW: Stable chat for agents
   // ────────────────────────────────────────────────
-  const createBackendChat = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/api/chat/create/`, {
+  const createBackendChat = useCallback(async (payload = {}) => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/chat/create/`, {
       method: "POST",
-      credentials: "include"
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -214,36 +270,61 @@ function ChatPageContent() {
 
   const fetchOrCreateAgentChatId = useCallback(async (agentId) => {
     const cachedChatId = agentChatIdsRef.current.get(agentId);
-    if (cachedChatId) {
+    if (cachedChatId && chats.some((chat) => chat.id === cachedChatId)) {
       return { chatId: cachedChatId, isNew: false };
     }
+    if (cachedChatId) {
+      agentChatIdsRef.current.delete(agentId);
+    }
 
-    const response = await fetch(`${API_BASE_URL}/api/custom_agents/get-or-create-chat/`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/get-or-create-chat/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      credentials: "include",
       body: JSON.stringify({ agent_id: agentId })
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to create custom agent chat: ${response.status}`);
-    }
+    const data = await response.json().catch(() => null);
 
-    const data = await response.json();
+    if (!response.ok) {
+      if (response.status === 403) {
+        await refreshBilling();
+      }
+      throw new Error(data?.error || `Failed to create custom agent chat: ${response.status}`);
+    }
     agentChatIdsRef.current.set(agentId, data.chat_id);
     return {
       chatId: data.chat_id,
       isNew: data.is_new
     };
-  }, []);
+  }, [chats, refreshBilling]);
 
   const getOrCreateAgentChat = useCallback(async (agent) => {
     if (!agent) return null;
 
     if (!agent.isBuiltIn && agent.status !== 'active') {
       showToast.warning(`${agent.name} is deactivated. Please activate it first.`);
+      return null;
+    }
+
+    if (!agent.isBuiltIn && areCustomAgentsLockedForBilling(billing)) {
+      const message = billing?.isPaid
+        ? TOKEN_LIMIT_REACHED_MESSAGE
+        : "Custom agents are available on Pro. Upgrade to continue.";
+      if (billing?.isPaid) {
+        await refreshBilling();
+        showToast.info(message);
+      } else {
+        showToast.info(message);
+        router.push("/pricing");
+      }
+      return null;
+    }
+
+    if (agent.id === "builtin-comsats" && hasTokenLimitReached(billing)) {
+      await refreshBilling();
+      showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
       return null;
     }
 
@@ -258,8 +339,16 @@ function ChatPageContent() {
 
     if (agent.isBuiltIn) {
       chatId = agentChatIdsRef.current.get(agent.id);
+      if (chatId && !chats.some((chat) => chat.id === chatId)) {
+        agentChatIdsRef.current.delete(agent.id);
+        chatId = null;
+      }
       if (!chatId) {
-        chatId = await createBackendChat();
+        chatId = await createBackendChat({
+          agent_id: agent.id,
+          conversation_type: "domain_agent",
+          title: agent.name,
+        });
         agentChatIdsRef.current.set(agent.id, chatId);
         isNew = true;
       }
@@ -271,7 +360,7 @@ function ChatPageContent() {
 
     const newChat = {
       id: chatId,
-      name: `Chat with ${agent.name}`,
+      name: agent.name,
       lastActive: "Just now",
       agentId: agent.id
     };
@@ -295,13 +384,13 @@ function ChatPageContent() {
     }
 
     return newChat;
-  }, [chats, createBackendChat, fetchOrCreateAgentChatId]);
+  }, [billing, chats, createBackendChat, fetchOrCreateAgentChatId, refreshBilling, router]);
 
   const createNewChat = useCallback(async (firstMessage, agentId = null) => {
     const newChatId = await createBackendChat();
     const agent = agentId ? contextSelectedAgent : null;
     const chatName = agent
-      ? `Chat with ${agent.name}`
+      ? agent.name
       : "New Chat";
 
     const newChat = {
@@ -346,6 +435,8 @@ function ChatPageContent() {
         contextSetSelectedAgent(agent);
         agentChatIdsRef.current.set(agent.id, chatId);
 
+      } else {
+        contextSetSelectedAgent(null);
       }
     } else {
       // This is a normal chat - CLEAR agent selection
@@ -382,6 +473,12 @@ function ChatPageContent() {
   // ========== AGENT EVENT HANDLERS ==========
 
   const handleAgentSelect = useCallback(async (agent) => {
+    if (agentsLocked) {
+      showToast.info("AI agents are available on Pro. Upgrade to continue.");
+      router.push("/pricing");
+      return;
+    }
+
     try {
       pendingAgentSelectionRef.current = agent?.id || null;
       let resolvedAgent = agent;
@@ -444,9 +541,13 @@ function ChatPageContent() {
     } catch (error) {
       pendingAgentSelectionRef.current = null;
       console.error("Failed to open agent chat:", error);
-      showToast.error(`Unable to open chat for ${agent.name}.`);
+      if ((error?.message || "") === TOKEN_LIMIT_REACHED_MESSAGE) {
+        showToast.info(error.message);
+      } else {
+        showToast.error(error?.message || `Unable to open chat for ${agent.name}.`);
+      }
     }
-  }, [isMobile, getOrCreateAgentChat, contextSetSelectedAgent, chatMessages, ensureCustomAgentUsesBackendId]);
+  }, [agentsLocked, chatMessages, contextSetSelectedAgent, ensureCustomAgentUsesBackendId, getOrCreateAgentChat, isMobile, router]);
 
   const handleAgentCreated = useCallback((newAgent) => {
     console.log("Agent created in parent:", newAgent);
@@ -485,6 +586,12 @@ function ChatPageContent() {
   // ========== OTHER HANDLERS ==========
 
   const handleAgentsButtonClick = useCallback((openCreateModal = false) => {
+    if (agentsLocked) {
+      showToast.info("Custom and domain agents are available on Pro. Upgrade to continue.");
+      router.push("/pricing");
+      return;
+    }
+
     console.log("📱 PAGE: Agents button clicked, openCreateModal:", openCreateModal);
 
     setShowAgentDashboard(true);
@@ -498,7 +605,7 @@ function ChatPageContent() {
       contextSetEditingAgent(null);
       contextSetIsCreatingAgent(true);
     }
-  }, [isMobile, contextSetEditingAgent, contextSetIsCreatingAgent]);
+  }, [agentsLocked, contextSetEditingAgent, contextSetIsCreatingAgent, isMobile, router]);
 
   const prepareNewChat = useCallback(() => {
     console.log("💬 PAGE: Preparing new chat");
@@ -540,6 +647,11 @@ function ChatPageContent() {
     if (message.role === "user") {
       // ─── Agent mode - use stable chat ───
       if (contextSelectedAgent) {
+        if (agentsLocked) {
+          showToast.info("AI agents are available on Pro. Upgrade to continue.");
+          router.push("/pricing");
+          return { chatId: null, setLoading: false };
+        }
 
         // 🟢 NEW: Check if the selected agent is active
         if (!contextSelectedAgent.isBuiltIn && contextSelectedAgent.status !== 'active') {
@@ -626,15 +738,32 @@ function ChatPageContent() {
   }, [
     createNewChat,
     addMessageToChat,
+    agentsLocked,
     chatMessages,
     setChatLoading,
     contextSelectedAgent,
     chats,
     getOrCreateAgentChat,
-    allAgents
+    allAgents,
+    router
   ]);
 
-  const updateChats = useCallback((newChats) => {
+  const updateChats = useCallback(async (newChats) => {
+    const currentById = new Map(chats.map((chat) => [chat.id, chat]));
+    for (const chat of newChats) {
+      const existing = currentById.get(chat.id);
+      if (existing && existing.name !== chat.name) {
+        try {
+          await fetchWithAuth(`${API_BASE_URL}/api/chat/conversations/${chat.id}/`, {
+            method: "PATCH",
+            body: JSON.stringify({ title: chat.name }),
+          });
+        } catch (error) {
+          console.error("Failed to rename conversation:", error);
+        }
+      }
+    }
+
     setChats(newChats);
 
     if (activeChatId && !newChats.find(chat => chat.id === activeChatId)) {
@@ -651,7 +780,7 @@ function ChatPageContent() {
         return newMessages;
       });
     }
-  }, [activeChatId, setChatLoading, contextSetSelectedAgent]);
+  }, [activeChatId, chats, contextSetSelectedAgent, setChatLoading]);
 
   // ========== RENDER ==========
 

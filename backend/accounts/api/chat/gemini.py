@@ -1,6 +1,8 @@
 from langchain.chat_models import init_chat_model
 from langchain_tavily import TavilySearch
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
@@ -9,6 +11,7 @@ from dotenv import load_dotenv
 from threading import Lock
 from uuid import uuid4
 from .documents import load_vectorstore
+from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 
 # -------------------- Load Environment Variables --------------------
 load_dotenv()
@@ -16,11 +19,14 @@ load_dotenv()
 # -------------------- Model Map --------------------
 MODEL_MAP = {
     "gpt5-nano": "openai/gpt-5-nano",
-    "gemini-flashlite": "google/gemini-2.0-flash-lite-001",
+    "gemini-flashlite": "google/gemini-2.5-flash-lite-preview-09-2025",
     "deepseek-chat": "deepseek/deepseek-chat",
     "claude-3 haiku": "anthropic/claude-3-haiku",
     "mistral nemo": "mistralai/mistral-nemo",
-    "llama guard 4": "meta-llama/llama-4-maverick"
+    "llama guard 4": "meta-llama/llama-3-70b-instruct",
+    "gpt-oss-120b": "openai/gpt-oss-120b:free",
+    "models-router": "openrouter/free"
+    
 }
 
 IMAGE_GENERATION_MODEL = "gemini-2.5-flash-image"
@@ -317,7 +323,7 @@ title_prompt = ChatPromptTemplate.from_messages([
 def generate_chat_title(user_input: str) -> str:
     """Generate a chat title from the first user message."""
     try:
-        provider_model = MODEL_MAP["gemini-flashlit"]  
+        provider_model = MODEL_MAP["gpt-oss-120b"]  
         model = init_model(provider_model)
         
         # Create a simple chain for title generation
@@ -349,27 +355,26 @@ chat_histories = {}
 chat_lock = Lock()
 
 
-def create_chat_session():
-    """Create and register a new backend-owned chat session."""
-    chat_id = str(uuid4())
-    with chat_lock:
-        chat_histories[chat_id] = InMemoryChatMessageHistory()
-    return chat_id
-
-def get_chat_history(chat_id=None):
-    """Return chat history object for given chat_id. Create one if not exists."""
-    if not chat_id:
-        chat_id = create_chat_session()
-    elif chat_id not in chat_histories:
-        with chat_lock:
-            chat_histories.setdefault(chat_id, InMemoryChatMessageHistory())
-    return chat_id, chat_histories[chat_id]
+def build_chat_history(history_messages=None):
+    chat_history = InMemoryChatMessageHistory()
+    for message in history_messages or []:
+        text = getattr(message, "content_text", "") or ""
+        role = getattr(message, "role", "")
+        if not text:
+            continue
+        if role == "user":
+            chat_history.add_message(HumanMessage(content=text))
+        elif role == "assistant":
+            chat_history.add_message(AIMessage(content=text))
+        elif role == "system":
+            chat_history.add_message(SystemMessage(content=text))
+    return chat_history
 
 
 # -------------------- Streaming Bot Response Function --------------------
-def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
+def get_bot_response(user_input: str, model_id: str, history_messages=None, user=None, track_tokens=False):
     try:
-        chat_id, chat_history = get_chat_history(chat_id)
+        chat_history = build_chat_history(history_messages)
         resolved_model_id = resolve_normal_chat_model(user_input, model_id)
         provider_model = MODEL_MAP.get(resolved_model_id, "openai/gpt-5-nano")
         model = init_model(provider_model)
@@ -384,19 +389,31 @@ def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
             handle_parsing_errors=True
         )
         
-        chat_history.add_user_message(user_input)
-        print(f"=== EXECUTING CHAT {chat_id} ===")
+        print("=== EXECUTING CHAT ===")
         print(f"Requested model: {model_id}")
         print(f"Resolved model: {resolved_model_id}")
         
         # Run the agent (tool calling happens here)
-        result = agent_executor.invoke({
-            "input": user_input,
-            "chat_history": chat_history.messages,
-            "agent_scratchpad": []
-        })
+        with get_openai_callback() as callback:
+            result = agent_executor.invoke({
+                "input": user_input,
+                "chat_history": chat_history.messages,
+                "agent_scratchpad": []
+            })
         
         final_answer = result["output"]
+        usage = extract_token_usage(callback)
+
+        if track_tokens and user:
+            try:
+                profile = get_or_create_billing_profile(user)
+                record_token_usage(profile, **usage)
+                print(
+                    "Token usage recorded for chat: "
+                    f"in={usage['input_tokens']} out={usage['output_tokens']} total={usage['total_tokens']}"
+                )
+            except Exception as usage_error:
+                print(f"[WARN] Token usage recording failed for chat: {usage_error}")
         
         # stream final answer word-by-word
         words = final_answer.split(" ")
@@ -406,10 +423,6 @@ def get_bot_response(user_input: str, model_id: str, chat_id: str = None):
             import time
             time.sleep(0.006)  # ~15ms per word → natural speed
         
-        
-        
-        chat_history.add_ai_message(final_answer)
-        
     except Exception as e:
-        print(f"[ERROR] Chat {chat_id}: {str(e)}")
+        print(f"[ERROR] Chat: {str(e)}")
         yield f"Error: {str(e)}"

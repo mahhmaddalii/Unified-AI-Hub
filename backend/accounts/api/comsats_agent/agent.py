@@ -6,11 +6,13 @@ from threading import Lock
 
 from django.contrib.auth.models import AnonymousUser
 from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.tools import StructuredTool
-from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
+from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 
 from .gmail import build_gmail_oauth_url, is_gmail_connected, send_gmail_email
 
@@ -59,9 +61,20 @@ class SendUniversityEmailInput(BaseModel):
     body: str = Field(description="Final email body to send")
 
 
-def get_or_create_chat_history(thread_id):
-    with chat_lock:
-        return chat_histories.setdefault(thread_id, InMemoryChatMessageHistory())
+def build_chat_history(history_messages=None):
+    built_messages = []
+    for message in history_messages or []:
+        text = getattr(message, "content_text", "") or ""
+        role = getattr(message, "role", "")
+        if not text:
+            continue
+        if role == "user":
+            built_messages.append(HumanMessage(content=text))
+        elif role == "assistant":
+            built_messages.append(AIMessage(content=text))
+        elif role == "system":
+            built_messages.append(SystemMessage(content=text))
+    return built_messages
 
 
 def build_email_tool_for_user(user):
@@ -127,9 +140,9 @@ def extract_email_draft(answer_text: str):
     }
 
 
-def get_comsats_response(query: str, thread_id="comsats_agent_chat", user=None):
+def get_comsats_response(query: str, thread_id="comsats_agent_chat", history_messages=None, user=None, track_tokens=False):
     try:
-        chat_history = get_or_create_chat_history(thread_id)
+        chat_history = build_chat_history(history_messages)
         tools = [build_email_tool_for_user(user)]
 
         agent = create_openai_tools_agent(llm, tools, prompt)
@@ -140,18 +153,24 @@ def get_comsats_response(query: str, thread_id="comsats_agent_chat", user=None):
             handle_parsing_errors=True,
         )
 
-        chat_history.add_user_message(query)
-        result = agent_executor.invoke({
-            "input": query,
-            "chat_history": chat_history.messages,
-            "agent_scratchpad": [],
-        })
+        with get_openai_callback() as callback:
+            result = agent_executor.invoke({
+                "input": query,
+                "chat_history": chat_history,
+                "agent_scratchpad": [],
+            })
         answer_text = result["output"].strip()
+        usage = extract_token_usage(callback)
         if "email sent successfully" not in answer_text.lower():
             draft = extract_email_draft(answer_text)
             if draft:
                 answer_text = f"{answer_text}\n\n{EMAIL_DRAFT_TAG}{json.dumps(draft)}"
-        chat_history.add_ai_message(answer_text)
+        if track_tokens and user:
+            try:
+                profile = get_or_create_billing_profile(user)
+                record_token_usage(profile, **usage)
+            except Exception as usage_error:
+                print(f"[WARN] Comsats token usage recording failed: {usage_error}")
         return answer_text
     except Exception as e:
         return f"⚠️ Error: {str(e)}"

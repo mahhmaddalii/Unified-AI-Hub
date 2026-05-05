@@ -8,6 +8,12 @@ import { useAgents } from "../agents/AgentContext";
 import { showToast } from '../../utils/toast'; 
 import { useAuth } from "../auth/auth-context";
 import {
+  areAgentsLockedForBilling,
+  areCustomAgentsLockedForBilling,
+  hasTokenLimitReached,
+  TOKEN_LIMIT_REACHED_MESSAGE,
+} from "../../utils/plan-access";
+import {
   PlusIcon,
   ChatBubbleOvalLeftIcon,
   ChevronLeftIcon,
@@ -71,7 +77,19 @@ export default function UnifiedSidebar({
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const router = useRouter();
   const [activeBuiltInChats, setActiveBuiltInChats] = useState({});
-  const { user, loading: userLoading, logout } = useAuth();
+  const { user, loading: userLoading, logout, refreshBilling } = useAuth();
+  const billing = user?.billing || null;
+  const agentsLocked = !userLoading && areAgentsLockedForBilling(billing);
+
+  useEffect(() => {
+    const nextMap = {};
+    for (const chat of chats) {
+      if (chat?.agentId?.startsWith?.("builtin-")) {
+        nextMap[chat.agentId] = chat.id;
+      }
+    }
+    setActiveBuiltInChats(nextMap);
+  }, [chats]);
 
   // Use selected agent from context or external prop
   const selectedAgent = contextSelectedAgent || externalSelectedAgent;
@@ -224,8 +242,29 @@ export default function UnifiedSidebar({
     if (isMobile) onToggle(false);
   };
 
+  const redirectToPricingForAgents = (message = "AI agents are available on Pro. Upgrade to continue.") => {
+    showToast.info(message);
+    if (isMobile) onToggle(false);
+    router.push('/pricing');
+  };
+
   // Handle Create Custom Agent
   const handleCreateCustomAgent = () => {
+    if (agentsLocked) {
+      redirectToPricingForAgents("Custom agents are available on Pro. Upgrade to continue.");
+      return;
+    }
+
+    if (areCustomAgentsLockedForBilling(billing)) {
+      if (billing?.isPaid && hasTokenLimitReached(billing)) {
+        refreshBilling();
+        showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      } else {
+        redirectToPricingForAgents("Custom agents are available on Pro. Upgrade to continue.");
+      }
+      return;
+    }
+
     setEditingAgent(null);
     setPendingAction('create');
     setActiveTab("agents");
@@ -239,6 +278,27 @@ export default function UnifiedSidebar({
 
   // Handle agent selection
   const handleSelectAgent = (agent) => {
+    if (agentsLocked) {
+      redirectToPricingForAgents("Domain and custom agents are available on Pro. Upgrade to continue.");
+      return;
+    }
+
+    if (!agent.isBuiltIn && areCustomAgentsLockedForBilling(billing)) {
+      if (billing?.isPaid && hasTokenLimitReached(billing)) {
+        refreshBilling();
+        showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      } else {
+        redirectToPricingForAgents("Custom agents are available on Pro. Upgrade to continue.");
+      }
+      return;
+    }
+
+    if (agent.id === "builtin-comsats" && hasTokenLimitReached(billing)) {
+      refreshBilling();
+      showToast.info(TOKEN_LIMIT_REACHED_MESSAGE);
+      return;
+    }
+
     if (!agent.isBuiltIn && agent.status !== 'active') {
       showToast.error(`❌ ${agent.name} is inactive. Please activate it first from the agent dashboard.`);
       return;
@@ -246,16 +306,9 @@ export default function UnifiedSidebar({
 
     if (agent.isBuiltIn && activeBuiltInChats[agent.id]) {
       const existingChatId = activeBuiltInChats[agent.id];
-
-      if (typeof window !== 'undefined') {
-        const shouldSwitch = confirm(
-          `${agent.name} already has an active chat. Would you like to switch to that chat?`
-        );
-
-        if (shouldSwitch && onSelectChat) {
-          onSelectChat(existingChatId);
-          if (isMobile) onToggle(false);
-        }
+      if (onSelectChat) {
+        onSelectChat(existingChatId);
+        if (isMobile) onToggle(false);
       }
       return;
     }
@@ -569,6 +622,10 @@ export default function UnifiedSidebar({
 
             <button
               onClick={() => {
+                if (agentsLocked) {
+                  redirectToPricingForAgents("AI agents are available on Pro. Upgrade to continue.");
+                  return;
+                }
                 setActiveTab("agents");
                 onToggle(true);
                 if (onAgentsButtonClick) {
@@ -685,6 +742,10 @@ export default function UnifiedSidebar({
                 <button
                   key={tab}
                   onClick={() => {
+                    if (tab === "agents" && agentsLocked) {
+                      redirectToPricingForAgents("AI agents are available on Pro. Upgrade to continue.");
+                      return;
+                    }
                     setActiveTab(tab);
                     setShowSearch(false);
                     setSearchQuery("");
@@ -903,6 +964,24 @@ export default function UnifiedSidebar({
 
               {activeTab === "agents" && (
                 <div className="space-y-3">
+                  {agentsLocked ? (
+                    <div className="rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50 to-indigo-50 p-4">
+                      <div className="flex items-center gap-2 text-purple-700">
+                        <LockClosedIcon className="w-4 h-4" />
+                        <span className="text-sm font-semibold">Pro feature</span>
+                      </div>
+                      <p className="mt-3 text-sm text-gray-700">
+                        Custom agents and built-in domain agents are available on the Pro plan.
+                      </p>
+                      <button
+                        onClick={() => redirectToPricingForAgents("Upgrade to Pro to unlock AI agents.")}
+                        className="mt-4 w-full rounded-xl bg-purple-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-purple-700"
+                      >
+                        Upgrade to Pro
+                      </button>
+                    </div>
+                  ) : (
+                    <>
                   {/* Create Agent Button - Compact */}
                   <button
                     onClick={handleCreateCustomAgent}
@@ -938,35 +1017,13 @@ export default function UnifiedSidebar({
                           return (
                             <div
                               key={agent.id}
-                              onClick={() => {
-                                if (hasActiveChat) {
-                                  showToast.confirm(
-                                    'Active Chat Exists',
-                                    `${agent.name} already has an active chat. Switch to it?`,
-                                    () => {
-                                      onSelectChat(hasActiveChat);
-                                      if (isMobile) onToggle(false);
-                                    },
-                                    () => { }
-                                  );
-                                  return;
-                                }
-
-                                handleSelectAgent(agent);
-                              }}
+                              onClick={() => handleSelectAgent(agent)}
                               className={`p-2 rounded-xl cursor-pointer transition-all duration-200 border relative ${isSelected
                                 ? "border-purple-300 bg-gradient-to-r from-purple-50 to-blue-50"
-                                : hasActiveChat
-                                  ? "border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50"
-                                  : "border-none hover:border-purple-200 hover:bg-gray-50"
+                                : "border-none hover:border-purple-200 hover:bg-gray-50"      
                                 }`}
                             >
-                              {/* Active chat indicator badge */}
-                              {hasActiveChat && (
-                                <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center border border-white">
-                                  <ChatBubbleOvalLeftIcon className="w-3 h-3 text-white" />
-                                </div>
-                              )}
+                              
 
                               <div className="flex items-center gap-2">
                                 <div className={`p-1.5 rounded-lg ${isSelected
@@ -986,11 +1043,7 @@ export default function UnifiedSidebar({
                                         {agent.name}
                                       </h4>
                                       <LockClosedIcon className="w-3 h-3 text-gray-400" />
-                                      {hasActiveChat && (
-                                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
-                                          Active Chat
-                                        </span>
-                                      )}
+                                      
                                     </div>
                                     {isSelected && (
                                       <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse"></div>
@@ -1034,6 +1087,7 @@ export default function UnifiedSidebar({
                           const modelIcon = modelIcons[agent.model] || modelIcons["gemini-flashlite"];
                           const modelName = modelDisplayNames[agent.model] || "Gemini";
                           const isActive = agent.status === 'active';
+                          const isEditable = agent.isEditable !== undefined ? agent.isEditable : !agent.isBuiltIn;
 
                           return (
                             <div
@@ -1095,7 +1149,7 @@ export default function UnifiedSidebar({
                               </div>
 
                               {/* Action Menu for Custom Agents */}
-                              {!agent.isBuiltIn && (
+                              {!agent.isBuiltIn && isEditable && (
                                 <div className="absolute right-1 top-1">
                                   <button
                                     onClick={(e) => handleThreeDotClick(e, agent.id)}
@@ -1135,16 +1189,18 @@ export default function UnifiedSidebar({
                       </div>
                     </div>
                   )}
+                    </>
+                  )}
 
                   {/* Empty States - Compact */}
-                  {!searchQuery && agents.custom.length === 0 && agents.builtIn.length > 0 && (
+                  {!agentsLocked && !searchQuery && agents.custom.length === 0 && agents.builtIn.length > 0 && (
                     <div className="text-center py-4 px-3 border border-dashed border-gray-300 rounded-xl bg-gradient-to-br from-gray-50/50 to-white">
                       <SparklesIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                       <p className="text-xs text-gray-500">No custom agents yet</p>
                     </div>
                   )}
 
-                  {!searchQuery && agents.custom.length === 0 && agents.builtIn.length === 0 && (
+                  {!agentsLocked && !searchQuery && agents.custom.length === 0 && agents.builtIn.length === 0 && (
                     <div className="text-center py-4 px-3 border border-dashed border-gray-300 rounded-xl bg-gradient-to-br from-gray-50/50 to-white">
                       <UserGroupIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                       <p className="text-xs text-gray-500">Create your first AI agent</p>
@@ -1152,7 +1208,7 @@ export default function UnifiedSidebar({
                   )}
 
                   {/* Search Empty State - Compact */}
-                  {searchQuery && filteredBuiltInAgents.length === 0 && filteredCustomAgents.length === 0 && (
+                  {!agentsLocked && searchQuery && filteredBuiltInAgents.length === 0 && filteredCustomAgents.length === 0 && (
                     <div className="text-center py-4 px-3">
                       <svg
                         className="w-8 h-8 text-gray-300 mx-auto mb-2"

@@ -110,6 +110,8 @@ USE_TZ = True
 
 # ---------------- Static ----------------
 STATIC_URL = 'static/'
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ---------------- Custom User ----------------
@@ -177,6 +179,11 @@ EMAIL_PORT = 587
 EMAIL_HOST_USER = "maahammadalyy@gmail.com"
 EMAIL_HOST_PASSWORD = "honhysbworqknsnb"   # App password
 DEFAULT_FROM_EMAIL = "no-reply@yourdomain.com"
+
+FRONTEND_APP_URL = os.getenv("FRONTEND_APP_URL", "http://127.0.0.1:3000")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PRO_MONTHLY_PRICE_ID = os.getenv("STRIPE_PRO_MONTHLY_PRICE_ID", "")
+PAID_MONTHLY_TOKEN_QUOTA = int(os.getenv("PAID_MONTHLY_TOKEN_QUOTA", "1000000"))
 
 
 CACHES = {
