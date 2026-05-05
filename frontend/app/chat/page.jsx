@@ -52,6 +52,36 @@ function ChatPageContent() {
   const agentChatIdsRef = useRef(new Map());
   const pendingAgentSelectionRef = useRef(null);
 
+  const loadPersistedChats = useCallback(async () => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/chat/conversations/`, {
+      method: "GET",
+    });
+    if (!response.ok) {
+      return;
+    }
+
+    const data = await response.json().catch(() => null);
+    const persistedChats = [];
+    const nextMessages = {};
+    agentChatIdsRef.current = new Map();
+
+    for (const conversation of data?.conversations || []) {
+      persistedChats.push({
+        id: conversation.id,
+        name: conversation.name,
+        lastActive: conversation.lastActive,
+        agentId: conversation.agentId || null,
+      });
+      nextMessages[conversation.id] = conversation.messages || [];
+      if (conversation.agentId) {
+        agentChatIdsRef.current.set(conversation.agentId, conversation.id);
+      }
+    }
+
+    setChats(persistedChats);
+    setChatMessages(nextMessages);
+  }, []);
+
   useEffect(() => {
     // Inject custom toast styles
     const style = document.createElement('style');
@@ -68,6 +98,11 @@ function ChatPageContent() {
       router.replace("/login");
     }
   }, [userLoading, user, router]);
+
+  useEffect(() => {
+    if (userLoading || !user) return;
+    loadPersistedChats();
+  }, [loadPersistedChats, user, userLoading]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -126,7 +161,16 @@ function ChatPageContent() {
 
   // ========== CHAT HANDLERS ==========
 
-  const handleDeleteChat = useCallback((chatId) => {
+  const handleDeleteChat = useCallback(async (chatId) => {
+    const deletedChat = chats.find((chat) => chat.id === chatId);
+    try {
+      await fetchWithAuth(`${API_BASE_URL}/api/chat/conversations/${chatId}/`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      console.error("Failed to delete chat:", error);
+    }
+
     if (chatId === activeChatId) {
       setActiveChatId(null);
       latestActiveChatId.current = null;
@@ -148,6 +192,9 @@ function ChatPageContent() {
       delete newMessages[chatId];
       return newMessages;
     });
+    if (deletedChat?.agentId) {
+      agentChatIdsRef.current.delete(deletedChat.agentId);
+    }
   }, [activeChatId, chats, contextSetSelectedAgent]);
 
   const setChatLoading = useCallback((chatId, isLoading) => {
@@ -207,10 +254,10 @@ function ChatPageContent() {
   // ────────────────────────────────────────────────
   // NEW: Stable chat for agents
   // ────────────────────────────────────────────────
-  const createBackendChat = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/api/chat/create/`, {
+  const createBackendChat = useCallback(async (payload = {}) => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/chat/create/`, {
       method: "POST",
-      credentials: "include"
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -223,8 +270,11 @@ function ChatPageContent() {
 
   const fetchOrCreateAgentChatId = useCallback(async (agentId) => {
     const cachedChatId = agentChatIdsRef.current.get(agentId);
-    if (cachedChatId) {
+    if (cachedChatId && chats.some((chat) => chat.id === cachedChatId)) {
       return { chatId: cachedChatId, isNew: false };
+    }
+    if (cachedChatId) {
+      agentChatIdsRef.current.delete(agentId);
     }
 
     const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/get-or-create-chat/`, {
@@ -248,7 +298,7 @@ function ChatPageContent() {
       chatId: data.chat_id,
       isNew: data.is_new
     };
-  }, [refreshBilling]);
+  }, [chats, refreshBilling]);
 
   const getOrCreateAgentChat = useCallback(async (agent) => {
     if (!agent) return null;
@@ -289,8 +339,16 @@ function ChatPageContent() {
 
     if (agent.isBuiltIn) {
       chatId = agentChatIdsRef.current.get(agent.id);
+      if (chatId && !chats.some((chat) => chat.id === chatId)) {
+        agentChatIdsRef.current.delete(agent.id);
+        chatId = null;
+      }
       if (!chatId) {
-        chatId = await createBackendChat();
+        chatId = await createBackendChat({
+          agent_id: agent.id,
+          conversation_type: "domain_agent",
+          title: agent.name,
+        });
         agentChatIdsRef.current.set(agent.id, chatId);
         isNew = true;
       }
@@ -302,7 +360,7 @@ function ChatPageContent() {
 
     const newChat = {
       id: chatId,
-      name: `Chat with ${agent.name}`,
+      name: agent.name,
       lastActive: "Just now",
       agentId: agent.id
     };
@@ -332,7 +390,7 @@ function ChatPageContent() {
     const newChatId = await createBackendChat();
     const agent = agentId ? contextSelectedAgent : null;
     const chatName = agent
-      ? `Chat with ${agent.name}`
+      ? agent.name
       : "New Chat";
 
     const newChat = {
@@ -377,6 +435,8 @@ function ChatPageContent() {
         contextSetSelectedAgent(agent);
         agentChatIdsRef.current.set(agent.id, chatId);
 
+      } else {
+        contextSetSelectedAgent(null);
       }
     } else {
       // This is a normal chat - CLEAR agent selection
@@ -688,7 +748,22 @@ function ChatPageContent() {
     router
   ]);
 
-  const updateChats = useCallback((newChats) => {
+  const updateChats = useCallback(async (newChats) => {
+    const currentById = new Map(chats.map((chat) => [chat.id, chat]));
+    for (const chat of newChats) {
+      const existing = currentById.get(chat.id);
+      if (existing && existing.name !== chat.name) {
+        try {
+          await fetchWithAuth(`${API_BASE_URL}/api/chat/conversations/${chat.id}/`, {
+            method: "PATCH",
+            body: JSON.stringify({ title: chat.name }),
+          });
+        } catch (error) {
+          console.error("Failed to rename conversation:", error);
+        }
+      }
+    }
+
     setChats(newChats);
 
     if (activeChatId && !newChats.find(chat => chat.id === activeChatId)) {
@@ -705,7 +780,7 @@ function ChatPageContent() {
         return newMessages;
       });
     }
-  }, [activeChatId, setChatLoading, contextSetSelectedAgent]);
+  }, [activeChatId, chats, contextSetSelectedAgent, setChatLoading]);
 
   // ========== RENDER ==========
 

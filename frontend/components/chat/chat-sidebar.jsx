@@ -81,6 +81,16 @@ export default function UnifiedSidebar({
   const billing = user?.billing || null;
   const agentsLocked = !userLoading && areAgentsLockedForBilling(billing);
 
+  useEffect(() => {
+    const nextMap = {};
+    for (const chat of chats) {
+      if (chat?.agentId?.startsWith?.("builtin-")) {
+        nextMap[chat.agentId] = chat.id;
+      }
+    }
+    setActiveBuiltInChats(nextMap);
+  }, [chats]);
+
   // Use selected agent from context or external prop
   const selectedAgent = contextSelectedAgent || externalSelectedAgent;
 
@@ -296,16 +306,9 @@ export default function UnifiedSidebar({
 
     if (agent.isBuiltIn && activeBuiltInChats[agent.id]) {
       const existingChatId = activeBuiltInChats[agent.id];
-
-      if (typeof window !== 'undefined') {
-        const shouldSwitch = confirm(
-          `${agent.name} already has an active chat. Would you like to switch to that chat?`
-        );
-
-        if (shouldSwitch && onSelectChat) {
-          onSelectChat(existingChatId);
-          if (isMobile) onToggle(false);
-        }
+      if (onSelectChat) {
+        onSelectChat(existingChatId);
+        if (isMobile) onToggle(false);
       }
       return;
     }
@@ -1014,35 +1017,13 @@ export default function UnifiedSidebar({
                           return (
                             <div
                               key={agent.id}
-                              onClick={() => {
-                                if (hasActiveChat) {
-                                  showToast.confirm(
-                                    'Active Chat Exists',
-                                    `${agent.name} already has an active chat. Switch to it?`,
-                                    () => {
-                                      onSelectChat(hasActiveChat);
-                                      if (isMobile) onToggle(false);
-                                    },
-                                    () => { }
-                                  );
-                                  return;
-                                }
-
-                                handleSelectAgent(agent);
-                              }}
+                              onClick={() => handleSelectAgent(agent)}
                               className={`p-2 rounded-xl cursor-pointer transition-all duration-200 border relative ${isSelected
                                 ? "border-purple-300 bg-gradient-to-r from-purple-50 to-blue-50"
-                                : hasActiveChat
-                                  ? "border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50"
-                                  : "border-none hover:border-purple-200 hover:bg-gray-50"
+                                : "border-none hover:border-purple-200 hover:bg-gray-50"      
                                 }`}
                             >
-                              {/* Active chat indicator badge */}
-                              {hasActiveChat && (
-                                <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center border border-white">
-                                  <ChatBubbleOvalLeftIcon className="w-3 h-3 text-white" />
-                                </div>
-                              )}
+                              
 
                               <div className="flex items-center gap-2">
                                 <div className={`p-1.5 rounded-lg ${isSelected
@@ -1062,11 +1043,7 @@ export default function UnifiedSidebar({
                                         {agent.name}
                                       </h4>
                                       <LockClosedIcon className="w-3 h-3 text-gray-400" />
-                                      {hasActiveChat && (
-                                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
-                                          Active Chat
-                                        </span>
-                                      )}
+                                      
                                     </div>
                                     {isSelected && (
                                       <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse"></div>
@@ -1110,6 +1087,7 @@ export default function UnifiedSidebar({
                           const modelIcon = modelIcons[agent.model] || modelIcons["gemini-flashlite"];
                           const modelName = modelDisplayNames[agent.model] || "Gemini";
                           const isActive = agent.status === 'active';
+                          const isEditable = agent.isEditable !== undefined ? agent.isEditable : !agent.isBuiltIn;
 
                           return (
                             <div
@@ -1171,7 +1149,7 @@ export default function UnifiedSidebar({
                               </div>
 
                               {/* Action Menu for Custom Agents */}
-                              {!agent.isBuiltIn && (
+                              {!agent.isBuiltIn && isEditable && (
                                 <div className="absolute right-1 top-1">
                                   <button
                                     onClick={(e) => handleThreeDotClick(e, agent.id)}

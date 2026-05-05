@@ -28,6 +28,7 @@ export default function AgentCard({
   const agentModel = agent.model || "gemini-flashlite";
   const agentStatus = agent.status || "active";
   const isBuiltIn = agent.isBuiltIn || false;
+  const isEditable = agent.isEditable !== undefined ? agent.isEditable : !isBuiltIn;
   const agentIcon = agent.icon || "🤖";
   const agentDescription = agent.description || "AI Assistant";
   const isAutoSelected = agent.isAutoSelected !== undefined ? agent.isAutoSelected : true;
@@ -198,7 +199,7 @@ export default function AgentCard({
       )}
 
       {/* Action Buttons - Only show for custom agents */}
-      {!isBuiltIn && (
+      {!isBuiltIn && isEditable && (
         <div className="flex items-center justify-end pt-4 border-t border-gray-100">
           <div className="flex items-center gap-1">
             {/* Edit Button - Only shows when agent is inactive */}

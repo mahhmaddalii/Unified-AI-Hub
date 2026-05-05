@@ -7,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor
 from langchain_community.callbacks.manager import get_openai_callback
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from django.core.cache import cache
 from .tools import livescore6_specific_match, cricket_search_tool
 
@@ -152,15 +152,25 @@ agent_executor = AgentExecutor(
 # Chat history (unchanged)
 # ────────────────────────────────────────────────
 
-chat_history = []
+def build_chat_history(history_messages=None):
+    built_messages = []
+    for message in history_messages or []:
+        text = getattr(message, "content_text", "") or ""
+        role = getattr(message, "role", "")
+        if not text:
+            continue
+        if role == "user":
+            built_messages.append(HumanMessage(content=text))
+        elif role == "assistant":
+            built_messages.append(AIMessage(content=text))
+    return built_messages
 
 
 # backend/accounts/api/cricket_agent/agent.py
 
-def get_cricket_response(query: str, thread_id="cricket_agent_chat", user=None, track_tokens=False):
-    global chat_history
-
+def get_cricket_response(query: str, thread_id="cricket_agent_chat", history_messages=None, user=None, track_tokens=False):
     q = query.lower().strip()
+    chat_history = build_chat_history(history_messages)
 
     # For live update requests, use direct API for speed
     if "live update" in q and cache.get(f"cricket_live_update_active_{thread_id}"):
@@ -189,13 +199,6 @@ def get_cricket_response(query: str, thread_id="cricket_agent_chat", user=None, 
         answer = result["output"].strip()
         usage = extract_token_usage(callback)
 
-        # Store in chat history
-        chat_history.append(HumanMessage(content=query))
-        chat_history.append(AIMessage(content=answer))
-
-        if len(chat_history) > 10:
-            chat_history = chat_history[-10:]
-
         if track_tokens and user:
             try:
                 profile = get_or_create_billing_profile(user)
@@ -210,6 +213,4 @@ def get_cricket_response(query: str, thread_id="cricket_agent_chat", user=None, 
         return f"⚠️ Error: {str(e)}"
 
 def reset_cricket_chat():
-    global chat_history
-    chat_history = []
     return True

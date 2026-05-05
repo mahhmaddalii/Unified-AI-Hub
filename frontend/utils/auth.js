@@ -81,12 +81,13 @@ export const fetchWithAuth = async (url, options = {}) => {
     ...fetchOptions
   } = options;
   let token = await getValidAccessToken({ suppressUnauthorizedRedirect });
+  const isFormData = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
 
   const requestOptions = {
     ...fetchOptions,
     headers: {
+      ...(isFormData ? {} : JSON_HEADERS),
       ...headers,
-      ...JSON_HEADERS,
     },
   };
 

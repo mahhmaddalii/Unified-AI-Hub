@@ -1,14 +1,11 @@
 "use client";
 
-
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { API_URL, fetchWithAuth } from "../../utils/auth";
 import { useAuth } from "../auth/auth-context";
 
 const API_BASE_URL = API_URL;
-const BACKEND_CUSTOM_AGENT_ID_PATTERN = /^agent-\d{13}-[a-z0-9]{9}$/;
 
-// Default built-in agents (unchanged)
 const BUILT_IN_AGENTS = [
   {
     id: "builtin-comsats",
@@ -21,7 +18,7 @@ const BUILT_IN_AGENTS = [
     icon: "🏢",
     description: "Official Comsats University assistant",
     purpose: "support",
-    isAutoSelected: true
+    isAutoSelected: true,
   },
   {
     id: "builtin-cricket",
@@ -34,7 +31,7 @@ const BUILT_IN_AGENTS = [
     icon: "🏏",
     description: "Cricket knowledge and match analysis",
     purpose: "general",
-    isAutoSelected: true
+    isAutoSelected: true,
   },
   {
     id: "builtin-politics",
@@ -47,48 +44,12 @@ const BUILT_IN_AGENTS = [
     icon: "⚖️",
     description: "Political analysis and current affairs",
     purpose: "research",
-    isAutoSelected: true
-  }
-];
-
-// Default custom agents
-const DEFAULT_CUSTOM_AGENTS = [
-  {
-    id: "agent-1",
-    name: "Customer Support Bot",
-    model: "deepseek-chat",
-    purpose: "support",
-    status: "active",
-    conversations: 1245,
-    satisfaction: 94,
-    cost: 0.45,
-    lastActive: "2 minutes ago",
-    isBuiltIn: false,
-    isAutoSelected: false,
-    customPrompt: "Always respond in friendly tone",
-    createdAt: new Date().toISOString()
+    isAutoSelected: true,
   },
-  {
-    id: "agent-2",
-    name: "Code Assistant",
-    model: "gpt5-nano",
-    purpose: "code",
-    status: "active",
-    conversations: 892,
-    satisfaction: 96,
-    cost: 0.38,
-    lastActive: "5 minutes ago",
-    isBuiltIn: false,
-    isAutoSelected: false,
-    customPrompt: "Specialize in Python programming",
-    createdAt: new Date().toISOString()
-  }
 ];
 
-// Create context
 const AgentContext = createContext();
 
-// Custom hook for using agent context
 export const useAgents = () => {
   const context = useContext(AgentContext);
   if (!context) {
@@ -97,338 +58,191 @@ export const useAgents = () => {
   return context;
 };
 
-const isBackendCustomAgentId = (agentId) => {
-  return typeof agentId === "string" && BACKEND_CUSTOM_AGENT_ID_PATTERN.test(agentId);
-};
-
-// Helper function to clean agent data
 const cleanAgentData = (agent) => {
-  if (!agent || typeof agent !== 'object') {
+  if (!agent || typeof agent !== "object") {
     return null;
   }
-  
-  // Remove any string-like properties that shouldn't be there
-  const cleaned = { ...agent };
-  
-  // Ensure it has all required properties
+
   return {
-    id: typeof cleaned.id === "string" ? cleaned.id : "",
-    name: cleaned.name || "Unnamed Agent",
-    purpose: cleaned.purpose || "general",
-    model: cleaned.model || "gemini-flashlite",
-    status: cleaned.status || "active",
-    customPrompt: cleaned.customPrompt || "",
-    isAutoSelected: cleaned.isAutoSelected !== undefined ? cleaned.isAutoSelected : true,
-    isBuiltIn: !!cleaned.isBuiltIn,
-    lastActive: cleaned.lastActive || "Just now",
-    conversations: cleaned.conversations || 0,
-    satisfaction: cleaned.satisfaction || 95,
-    createdAt: cleaned.createdAt || new Date().toISOString(),
-    updatedAt: cleaned.updatedAt || new Date().toISOString(),
-    description: cleaned.description || `${cleaned.name || "Agent"} Assistant`
+    id: typeof agent.id === "string" ? agent.id : "",
+    name: agent.name || "Unnamed Agent",
+    purpose: agent.purpose || "general",
+    model: agent.model || "gemini-flashlite",
+    status: agent.status || "active",
+    customPrompt: agent.customPrompt || "",
+    isAutoSelected: agent.isAutoSelected !== undefined ? agent.isAutoSelected : true,
+    isBuiltIn: !!agent.isBuiltIn,
+    isEditable: agent.isEditable !== undefined ? agent.isEditable : !agent.isBuiltIn,
+    lastActive: agent.lastActive || "Just now",
+    conversations: agent.conversations || 0,
+    satisfaction: agent.satisfaction || 95,
+    createdAt: agent.createdAt || new Date().toISOString(),
+    updatedAt: agent.updatedAt || new Date().toISOString(),
+    description: agent.description || `${agent.name || "Agent"} Assistant`,
   };
 };
 
-// Main provider component
-export function AgentProvider({ children, initialCustomAgents = [] }) {
-  const { refreshBilling } = useAuth();
-  // Load agents from localStorage on initial render
-  const [agents, setAgents] = useState(() => {
-    if (typeof window === "undefined") {
-      return {
-        builtIn: BUILT_IN_AGENTS,
-        custom: initialCustomAgents.length > 0 ? initialCustomAgents.map(cleanAgentData) : DEFAULT_CUSTOM_AGENTS
-      };
-    }
-    
-    try {
-      const saved = localStorage.getItem("customAgents");
-      if (saved) {
-        const parsedCustomAgents = JSON.parse(saved);
-        // Clean all agent data
-        const cleanedAgents = parsedCustomAgents.map(cleanAgentData).filter(Boolean);
-        return {
-          builtIn: BUILT_IN_AGENTS,
-          custom: cleanedAgents
-        };
-      } else {
-        return {
-          builtIn: BUILT_IN_AGENTS,
-          custom: initialCustomAgents.length > 0 ? initialCustomAgents.map(cleanAgentData) : DEFAULT_CUSTOM_AGENTS
-        };
-      }
-    } catch (error) {
-      console.error("Error loading agents from localStorage:", error);
-      return {
-        builtIn: BUILT_IN_AGENTS,
-        custom: DEFAULT_CUSTOM_AGENTS
-      };
-    }
+export function AgentProvider({ children }) {
+  const { user, loading: userLoading, refreshBilling } = useAuth();
+  const [agents, setAgents] = useState({
+    builtIn: BUILT_IN_AGENTS,
+    custom: [],
   });
-
-  // UI state
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [editingAgent, setEditingAgent] = useState(null);
   const [isCreatingAgent, setIsCreatingAgent] = useState(false);
 
-  // Auto-save custom agents to localStorage
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("customAgents", JSON.stringify(agents.custom));
-      } catch (error) {
-        console.error("Error saving agents to localStorage:", error);
-      }
+  const loadCustomAgents = useCallback(async () => {
+    if (!user) {
+      setAgents((prev) => ({ ...prev, custom: [] }));
+      return;
     }
-  }, [agents.custom]);
 
-  // Get all agents (built-in + custom)
-  const allAgents = useMemo(() => {
-    return [...agents.builtIn, ...agents.custom];
-  }, [agents.builtIn, agents.custom]);
-
-  const createBackendAgentId = useCallback(async () => {
-    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/create-id/`, {
-      method: "POST",
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/`, {
+      method: "GET",
     });
+    if (!response.ok) {
+      return;
+    }
 
     const data = await response.json().catch(() => null);
+    const nextCustomAgents = (data?.agents || []).map(cleanAgentData).filter(Boolean);
+    setAgents((prev) => ({
+      ...prev,
+      custom: nextCustomAgents,
+    }));
+  }, [user]);
 
-    if (!response.ok) {
-      if (response.status === 403) {
-        await refreshBilling();
-      }
-      throw new Error(data?.error || `Failed to create agent id: ${response.status}`);
-    }
-    return data.agent_id;
-  }, [refreshBilling]);
+  useEffect(() => {
+    if (userLoading) return;
+    loadCustomAgents();
+  }, [loadCustomAgents, userLoading]);
+
+  const allAgents = useMemo(() => [...agents.builtIn, ...agents.custom], [agents.builtIn, agents.custom]);
 
   const ensureCustomAgentUsesBackendId = useCallback(async (agentOrId) => {
     const agentId = typeof agentOrId === "string" ? agentOrId : agentOrId?.id;
     if (!agentId) {
       return null;
     }
+    return agents.custom.find((agent) => agent.id === agentId) || null;
+  }, [agents.custom]);
 
-    const currentAgent = agents.custom.find((agent) => agent.id === agentId);
-    if (!currentAgent) {
-      return null;
-    }
-
-    if (currentAgent.isBuiltIn || isBackendCustomAgentId(currentAgent.id)) {
-      return currentAgent;
-    }
-
-    const backendAgentId = await createBackendAgentId();
-    const migrationTimestamp = new Date().toISOString();
-    const migratedAgent = {
-      ...currentAgent,
-      id: backendAgentId,
-      updatedAt: migrationTimestamp
-    };
-
-    setAgents((prev) => {
-      const nextCustomAgents = prev.custom.map((agent) => (
-        agent.id === agentId ? migratedAgent : agent
-      ));
-
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("customAgents", JSON.stringify(nextCustomAgents));
-        } catch (error) {
-          console.error("Error saving migrated agent to localStorage:", error);
-        }
-      }
-
-      return {
-        ...prev,
-        custom: nextCustomAgents
-      };
-    });
-
-    setSelectedAgent((prev) => (
-      prev?.id === agentId ? migratedAgent : prev
-    ));
-    setEditingAgent((prev) => (
-      prev?.id === agentId ? migratedAgent : prev
-    ));
-
-    return migratedAgent;
-  }, [agents.custom, createBackendAgentId]);
-
-  // Create a new custom agent
   const createAgent = useCallback(async (agentData) => {
-    const cleanedAgentData = cleanAgentData(agentData);
-    if (!cleanedAgentData) return null;
-
-    const backendAgentId = await createBackendAgentId();
-
-    const newAgent = {
-      ...cleanedAgentData,
-      id: backendAgentId,
-      status: "active",
-      createdAt: new Date().toISOString(),
-      isBuiltIn: false
-    };
-
-    console.log("Creating new agent:", newAgent);
-
-    setAgents(prev => ({
-      ...prev,
-      custom: [newAgent, ...prev.custom]
-    }));
-
-    // Auto-select the newly created agent
-    setSelectedAgent(newAgent);
-
-    return newAgent;
-  }, [createBackendAgentId]);
-
-  // Update an existing agent - FIXED: Ensure proper update
-  const updateAgent = useCallback((agentId, updates) => {
-    console.log("Updating agent:", agentId, "with updates:", updates);
-    
-    // Clean the updates data
-    const cleanedUpdates = cleanAgentData(updates);
-    if (!cleanedUpdates) {
-      console.error("Invalid updates data:", updates);
-      return;
-    }
-    
-    setAgents(prev => {
-      // Find the agent to update
-      const agentToUpdate = prev.custom.find(agent => agent.id === agentId);
-      if (!agentToUpdate) {
-        console.error("Agent not found for update:", agentId);
-        return prev;
-      }
-
-      // Merge updates with existing agent data, but keep the original ID
-      const updatedAgent = {
-        ...agentToUpdate,
-        ...cleanedUpdates,
-        id: agentToUpdate.id, // Keep original ID
-        lastActive: "Just now",
-        updatedAt: new Date().toISOString()
-      };
-
-      console.log("Agent after update:", updatedAgent);
-
-      // Return new state with updated agent
-      return {
-        ...prev,
-        custom: prev.custom.map(agent => 
-          agent.id === agentId ? updatedAgent : agent
-        )
-      };
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/`, {
+      method: "POST",
+      body: JSON.stringify(agentData),
     });
 
-    // Update selected agent if it's the same
-    if (selectedAgent?.id === agentId) {
-      console.log("Updating selected agent:", agentId);
-      const updatedSelectedAgent = cleanAgentData({ ...selectedAgent, ...cleanedUpdates });
-      if (updatedSelectedAgent) {
-        setSelectedAgent(updatedSelectedAgent);
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      if (response.status === 403) {
+        await refreshBilling();
       }
+      throw new Error(data?.error || `Failed to create agent: ${response.status}`);
     }
 
-    // Update editing agent if it's the same
-    if (editingAgent?.id === agentId) {
-      console.log("Updating editing agent:", agentId);
-      const updatedEditingAgent = cleanAgentData({ ...editingAgent, ...cleanedUpdates });
-      if (updatedEditingAgent) {
-        setEditingAgent(updatedEditingAgent);
-      }
+    const newAgent = cleanAgentData(data?.agent);
+    if (!newAgent) {
+      throw new Error("Backend did not return a valid agent.");
     }
-  }, [selectedAgent, editingAgent]);
 
-  // Delete an agent
-  const deleteAgent = useCallback((agentId) => {
-    setAgents(prev => ({
+    setAgents((prev) => ({
       ...prev,
-      custom: prev.custom.filter(agent => agent.id !== agentId)
+      custom: [newAgent, ...prev.custom],
     }));
+    setSelectedAgent(newAgent);
+    return newAgent;
+  }, [refreshBilling]);
 
-    // Clear selected/editing if deleted
+  const updateAgent = useCallback(async (agentId, updates) => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/${agentId}/`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      if (response.status === 403) {
+        await refreshBilling();
+      }
+      throw new Error(data?.error || `Failed to update agent: ${response.status}`);
+    }
+
+    const updatedAgent = cleanAgentData(data?.agent);
+    if (!updatedAgent) {
+      throw new Error("Backend did not return a valid updated agent.");
+    }
+
+    setAgents((prev) => ({
+      ...prev,
+      custom: prev.custom.map((agent) => (agent.id === agentId ? updatedAgent : agent)),
+    }));
+    setSelectedAgent((prev) => (prev?.id === agentId ? updatedAgent : prev));
+    setEditingAgent((prev) => (prev?.id === agentId ? updatedAgent : prev));
+    return updatedAgent;
+  }, [refreshBilling]);
+
+  const deleteAgent = useCallback(async (agentId) => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/custom_agents/${agentId}/`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.error || `Failed to delete agent: ${response.status}`);
+    }
+
+    setAgents((prev) => ({
+      ...prev,
+      custom: prev.custom.filter((agent) => agent.id !== agentId),
+    }));
     if (selectedAgent?.id === agentId) {
       setSelectedAgent(null);
     }
     if (editingAgent?.id === agentId) {
       setEditingAgent(null);
     }
-  }, [selectedAgent, editingAgent]);
+  }, [editingAgent, selectedAgent]);
 
-  // Toggle agent status
-  const toggleAgentStatus = useCallback((agentId) => {
-    setAgents(prev => ({
-      ...prev,
-      custom: prev.custom.map(agent => 
-        agent.id === agentId 
-          ? { 
-              ...agent, 
-              status: agent.status === 'active' ? 'inactive' : 'active',
-              lastActive: "Just now"
-            }
-          : agent
-      )
-    }));
-
-    // Update selected agent if it's the same
-    if (selectedAgent?.id === agentId) {
-      setSelectedAgent(prev => ({
-        ...prev,
-        status: prev.status === 'active' ? 'inactive' : 'active',
-        lastActive: "Just now"
-      }));
+  const toggleAgentStatus = useCallback(async (agentId) => {
+    const currentAgent = agents.custom.find((agent) => agent.id === agentId);
+    if (!currentAgent) {
+      return;
     }
-  }, [selectedAgent]);
 
-  // Get agent by ID
-  const getAgentById = useCallback((agentId) => {
-    return allAgents.find(agent => agent.id === agentId);
-  }, [allAgents]);
+    const nextStatus = currentAgent.status === "active" ? "inactive" : "active";
+    const updatedAgent = await updateAgent(agentId, { status: nextStatus });
+    return updatedAgent;
+  }, [agents.custom, updateAgent]);
 
-  // Get agents by type
-  const getAgentsByType = useCallback((type = 'all') => {
+  const getAgentById = useCallback((agentId) => allAgents.find((agent) => agent.id === agentId), [allAgents]);
+
+  const getAgentsByType = useCallback((type = "all") => {
     switch (type) {
-      case 'builtin':
+      case "builtin":
         return agents.builtIn;
-      case 'custom':
+      case "custom":
         return agents.custom;
-      case 'all':
       default:
         return allAgents;
     }
   }, [agents.builtIn, agents.custom, allAgents]);
 
-  // Reset to default (for testing/development)
   const resetToDefault = useCallback(() => {
-    setAgents({
-      builtIn: BUILT_IN_AGENTS,
-      custom: DEFAULT_CUSTOM_AGENTS
-    });
     setSelectedAgent(null);
     setEditingAgent(null);
-    
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("customAgents");
-    }
+    setIsCreatingAgent(false);
   }, []);
 
-  // Context value
   const contextValue = useMemo(() => ({
-    // State
-    agents: agents,
+    agents,
     allAgents,
     selectedAgent,
     editingAgent,
     isCreatingAgent,
-    
-    // Setters
     setSelectedAgent,
     setEditingAgent,
     setIsCreatingAgent,
-    
-    // Actions
     createAgent,
     updateAgent,
     deleteAgent,
@@ -437,13 +251,12 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
     getAgentById,
     getAgentsByType,
     resetToDefault,
-    
-    // Stats
+    refreshAgents: loadCustomAgents,
     stats: {
       totalAgents: agents.custom.length,
-      activeAgents: agents.custom.filter(a => a.status === "active").length,
-      builtInAgents: agents.builtIn.length
-    }
+      activeAgents: agents.custom.filter((agent) => agent.status === "active").length,
+      builtInAgents: agents.builtIn.length,
+    },
   }), [
     agents,
     allAgents,
@@ -457,7 +270,8 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
     ensureCustomAgentUsesBackendId,
     getAgentById,
     getAgentsByType,
-    resetToDefault
+    resetToDefault,
+    loadCustomAgents,
   ]);
 
   return (
@@ -467,28 +281,8 @@ export function AgentProvider({ children, initialCustomAgents = [] }) {
   );
 }
 
-// Helper function to export/import agents
 export const agentUtils = {
-  exportAgents: () => {
-    if (typeof window === "undefined") return null;
-    const agents = localStorage.getItem("customAgents");
-    return agents ? JSON.parse(agents) : [];
-  },
-  
-  importAgents: (agentsData) => {
-    if (typeof window === "undefined") return false;
-    try {
-      const parsed = Array.isArray(agentsData) ? agentsData : JSON.parse(agentsData);
-      localStorage.setItem("customAgents", JSON.stringify(parsed));
-      return true;
-    } catch (error) {
-      console.error("Error importing agents:", error);
-      return false;
-    }
-  },
-  
-  clearAgents: () => {
-    if (typeof window === "undefined") return;
-    localStorage.removeItem("customAgents");
-  }
+  exportAgents: () => [],
+  importAgents: () => false,
+  clearAgents: () => {},
 };
