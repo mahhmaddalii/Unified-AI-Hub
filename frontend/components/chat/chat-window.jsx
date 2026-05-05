@@ -431,7 +431,10 @@ export default function ChatWindow({
     try {
       const response = await fetchWithAuth(`${API_URL}/api/comsats_agent/send-email/`, {
         method: "POST",
-        body: JSON.stringify(emailDraft),
+        body: JSON.stringify({
+          ...emailDraft,
+          message_id: messageId,
+        }),
       });
       const data = await response.json();
 
@@ -463,7 +466,7 @@ export default function ChatWindow({
     } finally {
       setIsSendingDraftEmail(false);
     }
-  }, [isSendingDraftEmail]);
+  }, [chatId, isSendingDraftEmail, onNewMessage]);
 
   const promptCards = [
     { title: "Explain concepts", prompt: "Explain quantum computing in simple terms", icon: "🧠" },
@@ -638,7 +641,10 @@ export default function ChatWindow({
         const formData = new FormData();
         formData.append("file", file);
         formData.append("chat_id", chatId);
-        const res = await fetch("http://127.0.0.1:8000/api/chat/upload-document/", { method: "POST", body: formData, credentials: "include" });
+        const res = await fetchWithAuth("http://127.0.0.1:8000/api/chat/upload-document/", {
+          method: "POST",
+          body: formData,
+        });
         if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
       }
     } catch (err) {

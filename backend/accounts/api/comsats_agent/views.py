@@ -1,5 +1,5 @@
-import time
 import json
+import time
 
 from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse, StreamingHttpResponse
@@ -14,7 +14,18 @@ from accounts.api.access import (
     sse_error_response,
     sse_token_limit_response,
 )
-from .agent import get_comsats_response, reset_comsats_chat
+from accounts.api.persistence import (
+    attach_pending_assets_to_message,
+    create_email_record,
+    create_message,
+    get_builtin_agent,
+    get_recent_context_messages,
+    get_user_conversation,
+    update_message,
+    assign_agent_to_conversation,
+)
+from accounts.models import Message
+from .agent import EMAIL_DRAFT_TAG, extract_email_draft, get_comsats_response, reset_comsats_chat
 from .gmail import (
     build_gmail_oauth_url,
     build_gmail_result_redirect,
@@ -58,7 +69,7 @@ def authenticate_header_token(request):
 @require_GET
 def comsats_stream(request):
     query = request.GET.get("text", "").strip()
-    thread_id = request.GET.get("chat_id", "").strip() or request.GET.get("thread_id", "comsats_agent_chat")
+    chat_id = request.GET.get("chat_id", "").strip()
     user = authenticate_query_token(request)
 
     if not user:
@@ -68,28 +79,86 @@ def comsats_stream(request):
         return sse_error_response("Upgrade to Pro to use domain agents.")
     if billing_profile.token_total_used >= getattr(settings, "PAID_MONTHLY_TOKEN_QUOTA", 0):
         return sse_token_limit_response("Token limit reached. Please wait until subscription renewal.")
-
     if not query:
         return JsonResponse({"error": "Query is required"}, status=400)
 
+    conversation = get_user_conversation(user, chat_id)
+    if not conversation:
+        return sse_error_response("Conversation not found.")
+
+    builtin_agent = get_builtin_agent("builtin-comsats")
+    if builtin_agent:
+        assign_agent_to_conversation(conversation, builtin_agent, conversation_type="domain_agent")
+
+    previous_context = get_recent_context_messages(conversation, limit=10)
+    user_message = create_message(
+        conversation,
+        role="user",
+        user=user,
+        content_text=query,
+    )
+    attach_pending_assets_to_message(conversation, user_message)
+
+    assistant_message = create_message(
+        conversation,
+        role="assistant",
+        content_text="",
+        status="streaming",
+        model_used="x-ai/grok-4.1-fast",
+    )
+
     def stream_response():
+        raw_answer = ""
         try:
-            response = get_comsats_response(query, thread_id=thread_id, user=user, track_tokens=True)
+            response = get_comsats_response(
+                query,
+                thread_id=chat_id,
+                history_messages=previous_context,
+                user=user,
+                track_tokens=True,
+            )
             for word in response.split(" "):
+                raw_answer += word + " "
                 yield f"data: {word.replace(chr(10), '\\n')} \n\n"
                 time.sleep(0.02)
+
+            marker_index = raw_answer.find(EMAIL_DRAFT_TAG)
+            stored_text = raw_answer.strip()
+            content_json = {}
+            if marker_index != -1:
+                draft_payload = raw_answer[marker_index + len(EMAIL_DRAFT_TAG):].strip()
+                stored_text = raw_answer[:marker_index].strip()
+                draft = None
+                if draft_payload:
+                    try:
+                        draft = json.loads(draft_payload)
+                    except json.JSONDecodeError:
+                        draft = extract_email_draft(stored_text)
+                if draft:
+                    content_json["email_draft"] = draft
+
+            update_message(
+                assistant_message,
+                content_text=stored_text,
+                content_json=content_json,
+                status="completed",
+                model_used="x-ai/grok-4.1-fast",
+            )
             yield "data: [DONE]\n\n"
-        except Exception as e:
-            error_msg = f"[ERROR] {str(e)}"
+        except Exception as exc:
+            update_message(
+                assistant_message,
+                content_text=raw_answer.strip(),
+                status="failed",
+                model_used="x-ai/grok-4.1-fast",
+            )
+            error_msg = f"[ERROR] {str(exc)}"
             for word in error_msg.split(" "):
                 yield f"data: {word.replace(chr(10), '\\n')} \n\n"
                 time.sleep(0.02)
             yield "data: [DONE]\n\n"
 
-    response = StreamingHttpResponse(
-        stream_response(),
-        content_type='text/event-stream'
-    )
+    response = StreamingHttpResponse(stream_response(), content_type='text/event-stream')
     response['Cache-Control'] = 'no-cache'
     response['X-Accel-Buffering'] = 'no'
     response['Access-Control-Allow-Origin'] = '*'
@@ -125,6 +194,7 @@ def comsats_send_email(request):
     recipient_email = (payload.get("recipient_email") or "").strip()
     subject = (payload.get("subject") or "").strip()
     body = (payload.get("body") or "").strip()
+    message_id = (payload.get("message_id") or "").strip()
 
     if not recipient_email or not subject or not body:
         return JsonResponse({"error": "recipient_email, subject, and body are required."}, status=400)
@@ -140,16 +210,48 @@ def comsats_send_email(request):
             status=409,
         )
 
+    draft_message = None
+    if message_id:
+        draft_message = Message.objects.filter(
+            id=message_id,
+            conversation__user=user,
+            conversation__status="active",
+        ).select_related("conversation", "conversation__agent").first()
+
     try:
         payload = send_gmail_email(user, recipient_email, subject, body)
+        gmail_message_id = payload.get("id", "")
+        if draft_message:
+            create_email_record(
+                conversation=draft_message.conversation,
+                message=draft_message,
+                user=user,
+                agent=draft_message.conversation.agent,
+                recipient_email=recipient_email,
+                subject=subject,
+                body=body,
+                gmail_message_id=gmail_message_id,
+            )
         return JsonResponse(
             {
                 "status": "success",
                 "message": f"Email sent to {recipient_email}.",
-                "gmail_message_id": payload.get("id"),
+                "gmail_message_id": gmail_message_id,
             }
         )
     except Exception as exc:
+        if draft_message:
+            create_email_record(
+                conversation=draft_message.conversation,
+                message=draft_message,
+                user=user,
+                agent=draft_message.conversation.agent,
+                recipient_email=recipient_email,
+                subject=subject,
+                body=body,
+                status="failed",
+                error_message=str(exc),
+            )
         return JsonResponse({"error": str(exc)}, status=500)
 
 

@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor
 from langchain_community.callbacks.manager import get_openai_callback
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from django.core.cache import cache
 
 from .tools import real_time_news_search, real_time_news_cycle
@@ -114,13 +114,23 @@ agent_executor = AgentExecutor(
     early_stopping_method="force",
 )
 
-chat_history = []
+def build_chat_history(history_messages=None):
+    built_messages = []
+    for message in history_messages or []:
+        text = getattr(message, "content_text", "") or ""
+        role = getattr(message, "role", "")
+        if not text:
+            continue
+        if role == "user":
+            built_messages.append(HumanMessage(content=text))
+        elif role == "assistant":
+            built_messages.append(AIMessage(content=text))
+    return built_messages
 
 
-def get_politics_response(query: str, thread_id: str = "politics_agent_chat", user=None, track_tokens=False):
-    global chat_history
-
+def get_politics_response(query: str, thread_id: str = "politics_agent_chat", history_messages=None, user=None, track_tokens=False):
     q = query.lower().strip()
+    chat_history = build_chat_history(history_messages)
 
     # Fast path — live loop calls this; skip the heavy agent invocation
     if "live update" in q and cache.get(f"politics_news_active_{thread_id}"):
@@ -142,12 +152,6 @@ def get_politics_response(query: str, thread_id: str = "politics_agent_chat", us
         answer = result["output"].strip()
         usage = extract_token_usage(callback)
 
-        chat_history.append(HumanMessage(content=query))
-        chat_history.append(AIMessage(content=answer))
-
-        if len(chat_history) > 10:
-            chat_history = chat_history[-10:]
-
         if track_tokens and user:
             try:
                 profile = get_or_create_billing_profile(user)
@@ -163,6 +167,4 @@ def get_politics_response(query: str, thread_id: str = "politics_agent_chat", us
 
 
 def reset_politics_chat() -> bool:
-    global chat_history
-    chat_history = []
     return True
