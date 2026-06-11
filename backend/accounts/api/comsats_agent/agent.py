@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
+from accounts.api.chat.documents import build_document_augmented_input, build_document_search_tool
 
 from .gmail import build_gmail_oauth_url, is_gmail_connected, send_gmail_email
 
@@ -35,6 +36,7 @@ Today is {datetime.now().strftime('%B %d, %Y')}.
 Rules:
 - Answer concisely, accurately, and helpfully.
 - Stay focused on COMSATS university issues, campus processes, and student support questions.
+- Use document_search when the user asks about an uploaded PDF, document, file, or document summary in this chat.
 - Do not invent faculty email addresses. If the exact official recipient email is not known, ask the user for it.
 - Only use the email tool after the user explicitly confirms they want the email sent.
 - Before sending, make sure the final email has a clear recipient, subject, and body.
@@ -140,10 +142,25 @@ def extract_email_draft(answer_text: str):
     }
 
 
-def get_comsats_response(query: str, thread_id="comsats_agent_chat", history_messages=None, user=None, track_tokens=False):
+def get_comsats_response(query: str, thread_id="comsats_agent_chat", history_messages=None, user=None, conversation=None, track_tokens=False):
     try:
         chat_history = build_chat_history(history_messages)
-        tools = [build_email_tool_for_user(user)]
+        tools = [
+            build_email_tool_for_user(user),
+            build_document_search_tool(
+                conversation,
+                user,
+                agent_id="builtin-comsats",
+                conversation_type="domain_agent",
+            ),
+        ]
+        agent_input = build_document_augmented_input(
+            query,
+            conversation,
+            user,
+            agent_id="builtin-comsats",
+            conversation_type="domain_agent",
+        )
 
         agent = create_openai_tools_agent(llm, tools, prompt)
         agent_executor = AgentExecutor(
@@ -155,7 +172,7 @@ def get_comsats_response(query: str, thread_id="comsats_agent_chat", history_mes
 
         with get_openai_callback() as callback:
             result = agent_executor.invoke({
-                "input": query,
+                "input": agent_input,
                 "chat_history": chat_history,
                 "agent_scratchpad": [],
             })

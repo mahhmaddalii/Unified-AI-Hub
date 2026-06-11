@@ -233,6 +233,7 @@ def custom_agent_chat_view(request):
                 custom_prompt=custom_prompt,
                 history_messages=previous_context,
                 user=user,
+                conversation=conversation,
                 track_tokens=True,
             ):
                 if chunk:

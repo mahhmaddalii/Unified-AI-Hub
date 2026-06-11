@@ -92,6 +92,7 @@ export default function ChatWindow({
   const prevChatIdRef = useRef(chatId);
   const currentAssistantIdRef = useRef(null);
   const draftManualRef = useRef(false);
+  const fileUploadDisabled = selectedAgent?.id === 'builtin-cricket' || selectedAgent?.id === 'builtin-politics';
 
   // ─────────────────────────────────────────────────────────────
   // Built-in domain agents now send chat_id only.
@@ -186,6 +187,12 @@ export default function ChatWindow({
       setStatusMsg("");
     }
   }, [selectedAgent]);
+
+  useEffect(() => {
+    if (fileUploadDisabled && attachedFiles.length > 0) {
+      setAttachedFiles([]);
+    }
+  }, [attachedFiles.length, fileUploadDisabled]);
 
   useEffect(() => {
     if (selectedAgent) return;
@@ -635,6 +642,7 @@ export default function ChatWindow({
   const showWelcomeScreen = !hasActiveChat || messages.length === 0;
 
   const uploadFilesIfAny = async (chatId) => {
+    if (fileUploadDisabled) return;
     if (attachedFiles.length === 0) return;
     try {
       for (const file of attachedFiles) {
@@ -747,6 +755,11 @@ export default function ChatWindow({
       const hasText = rawInput.length > 0;
       const hasFiles = attachedFiles.length > 0;
       if (!hasText && !hasFiles) return;
+      if (hasFiles && fileUploadDisabled) {
+        setAttachedFiles([]);
+        setStatusMsg("File upload is not supported for this agent.");
+        return;
+      }
       dismissPendingDrafts();
 
       const userMsgId = generateUniqueId();
@@ -811,7 +824,7 @@ export default function ChatWindow({
         setStatusMsg("Unable to start chat right now.");
         onSetLoading?.(false);
       }
-    }, [attachedFiles, billing, buildComsatsUrl, buildCricketUrl, buildPoliticsUrl, dismissPendingDrafts, input, onNewMessage, onSetLoading, redirectToPricingForModel, refreshBilling, router, selectedAgent, selectedModel]);
+    }, [attachedFiles, billing, buildComsatsUrl, buildCricketUrl, buildPoliticsUrl, dismissPendingDrafts, fileUploadDisabled, input, onNewMessage, onSetLoading, redirectToPricingForModel, refreshBilling, router, selectedAgent, selectedModel]);
 
   const makeAPIRequest = useCallback((messageText, targetChatId, assistantId, url, shouldRefreshBillingAfterResponse = false) => {
     if (!targetChatId) return;
@@ -1148,8 +1161,24 @@ export default function ChatWindow({
 
   const handleInputChange = useCallback((e) => { setInput(e.target.value); }, []);
   const toggleInputExpansion = useCallback(() => { setIsInputExpanded(!isInputExpanded); setTimeout(() => textareaRef.current?.focus(), 10); }, [isInputExpanded]);
-  const handleAttachClick = useCallback(() => { fileInputRef.current?.click(); }, []);
-  const handleFileSelect = useCallback((e) => { const files = Array.from(e.target.files); if (files.length > 0) setAttachedFiles(prev => [...prev, ...files]); e.target.value = ''; }, []);
+  const handleAttachClick = useCallback(() => {
+    if (fileUploadDisabled) {
+      setStatusMsg("File upload is not supported for this agent.");
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [fileUploadDisabled]);
+  const handleFileSelect = useCallback((e) => {
+    if (fileUploadDisabled) {
+      e.target.value = '';
+      setAttachedFiles([]);
+      setStatusMsg("File upload is not supported for this agent.");
+      return;
+    }
+    const files = Array.from(e.target.files);
+    if (files.length > 0) setAttachedFiles(prev => [...prev, ...files]);
+    e.target.value = '';
+  }, [fileUploadDisabled]);
   const removeFile = useCallback((index) => { setAttachedFiles(prev => prev.filter((_, i) => i !== index)); }, []);
   const handleModelSelect = useCallback((modelId) => {
     if (!canUseModelId(modelId, billing)) {
@@ -1465,17 +1494,17 @@ return (
                 type="button"
                 onClick={handleAttachClick}
                 className={`p-1.5 text-gray-500 hover:text-purple-600 hover:bg-white rounded-lg transition-colors ${
-                  isLiveUpdatesActive ? 'opacity-50 pointer-events-none' : ''
+                  isLiveUpdatesActive || fileUploadDisabled ? 'opacity-50 pointer-events-none' : ''
                 }`}
-                title="Attach files"
-                disabled={isLiveUpdatesActive || isSendingDraftEmail}
+                title={fileUploadDisabled ? "File upload is not supported for this agent" : "Attach files"}
+                disabled={isLiveUpdatesActive || isSendingDraftEmail || fileUploadDisabled}
               >
                 <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
               </button>
 
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" multiple disabled={isLiveUpdatesActive || isSendingDraftEmail} />
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" multiple disabled={isLiveUpdatesActive || isSendingDraftEmail || fileUploadDisabled} />
 
               {!selectedAgent ? (
                 <button

@@ -6,9 +6,8 @@ from langchain_community.callbacks.manager import get_openai_callback
 from langchain_tavily import TavilySearch
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain.tools import Tool
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from accounts.api.chat.documents import load_vectorstore
+from accounts.api.chat.documents import build_document_augmented_input, build_document_search_tool
 from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 
 load_dotenv()
@@ -244,34 +243,6 @@ def get_agent_model(model_selection, purpose, is_auto_selected):
         return model_selection if model_selection in MODEL_MAP else "gemini-flashlite"
 
 
-# -------------------- Document Search Tool --------------------
-def document_search(query: str) -> str:
-    """Search uploaded PDF documents for relevant information."""
-    vectorstore = load_vectorstore()
-    if not vectorstore:
-        return "No documents have been uploaded in this conversation."
-    
-    results = vectorstore.similarity_search_with_score(query, k=3)  # increased to k=3
-    if not results:
-        return "No relevant documents found for your query."
-    
-    relevant = []
-    for doc, score in results:
-        if score > 0.65:  # slightly lower threshold for better recall
-            relevant.append(doc.page_content.strip())
-    
-    if relevant:
-        return "Relevant document content:\n" + "\n\n".join(relevant)
-    
-    return "No sufficiently relevant document content found."
-
-document_search_tool = Tool.from_function(
-    func=document_search,
-    name="document_search",
-    description="Search uploaded PDF documents for relevant information. Use when query relates to document content."
-)
-
-
 def get_custom_agent_response(
     user_input,
     agent_id,
@@ -281,6 +252,7 @@ def get_custom_agent_response(
     custom_prompt="",
     history_messages=None,
     user=None,
+    conversation=None,
     track_tokens=False,
 ):
     try:
@@ -290,7 +262,20 @@ def get_custom_agent_response(
         chat_history = build_chat_history(history_messages)
         
         search_tool = TavilySearch(max_results=3)
+        document_search_tool = build_document_search_tool(
+            conversation,
+            user,
+            agent_id=agent_id,
+            conversation_type="custom_agent",
+        )
         tools = [search_tool, document_search_tool]
+        agent_input = build_document_augmented_input(
+            user_input,
+            conversation,
+            user,
+            agent_id=agent_id,
+            conversation_type="custom_agent",
+        )
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
@@ -316,7 +301,7 @@ def get_custom_agent_response(
         # Run agent (tools are called here)
         with get_openai_callback() as callback:
             result = agent_executor.invoke({
-                "input": user_input,
+                "input": agent_input,
                 "chat_history": chat_history,
                 "agent_scratchpad": []
             })

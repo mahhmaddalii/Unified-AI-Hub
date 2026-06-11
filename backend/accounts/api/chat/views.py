@@ -35,7 +35,13 @@ from accounts.api.persistence import (
     store_uploaded_assets,
     update_message,
 )
-from .documents import CONNECTION_STRING, COLLECTION_NAME
+from .documents import (
+    CONNECTION_STRING,
+    COLLECTION_NAME,
+    DOCUMENT_UPLOAD_UNSUPPORTED_MESSAGE,
+    build_chunk_metadata,
+    conversation_supports_document_upload,
+)
 from .generate_image import image_generator
 from .gemini import IMAGE_GENERATION_MODEL, generate_chat_title, get_bot_response, resolve_normal_chat_model
 
@@ -138,6 +144,9 @@ def upload_document(request):
     if not conversation:
         return JsonResponse({"error": "Valid chat_id is required."}, status=400)
 
+    if not conversation_supports_document_upload(conversation):
+        return JsonResponse({"error": DOCUMENT_UPLOAD_UNSUPPORTED_MESSAGE}, status=400)
+
     files = request.FILES.getlist("file")
     if not files:
         return JsonResponse({"error": "No PDF file uploaded"}, status=400)
@@ -151,6 +160,8 @@ def upload_document(request):
         documents = loader.load()
         splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
         chunks = splitter.split_documents(documents)
+        for chunk in chunks:
+            chunk.metadata = build_chunk_metadata(conversation, user, asset, chunk.metadata)
         all_chunks.extend(chunks)
 
     if all_chunks:
@@ -278,6 +289,7 @@ def chat_view(request):
                 resolved_model_id,
                 history_messages=previous_context,
                 user=user,
+                conversation=conversation,
                 track_tokens=model_requires_pro(resolved_model_id),
             ):
                 if chunk.strip():

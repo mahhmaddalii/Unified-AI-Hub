@@ -5,12 +5,11 @@ from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain.tools import Tool
 import os,re
 from dotenv import load_dotenv
 from threading import Lock
 from uuid import uuid4
-from .documents import load_vectorstore
+from .documents import build_document_augmented_input, build_document_search_tool
 from accounts.api.billing.services import extract_token_usage, get_or_create_billing_profile, record_token_usage
 
 # -------------------- Load Environment Variables --------------------
@@ -69,32 +68,6 @@ chat_history = InMemoryChatMessageHistory()
 # -------------------- Tavily Search Tool --------------------
 
 search_tool = TavilySearch(max_results=3)
-# -------------------- Document Search Tool --------------------
-def document_search(query: str) -> str:
-    """Search uploaded PDF documents for relevant information."""
-    vectorstore = load_vectorstore()
-    if not vectorstore:
-        return "No documents have been uploaded in this conversation."
-    
-    results = vectorstore.similarity_search_with_score(query, k=3)  # increased to k=3
-    if not results:
-        return "No relevant documents found for your query."
-    
-    relevant = []
-    for doc, score in results:
-        if score > 0.65:  # slightly lower threshold for better recall
-            relevant.append(doc.page_content.strip())
-    
-    if relevant:
-        return "Relevant document content:\n" + "\n\n".join(relevant)
-    
-    return "No sufficiently relevant document content found."
-
-document_search_tool = Tool.from_function(
-    func=document_search,
-    name="document_search",
-    description="Search uploaded PDF documents for relevant information. Use when query relates to document content."
-)
 
 # -------------------- Model Initialization --------------------
 def init_model(model_id: str = "openai/gpt-5-nano"):
@@ -372,14 +345,25 @@ def build_chat_history(history_messages=None):
 
 
 # -------------------- Streaming Bot Response Function --------------------
-def get_bot_response(user_input: str, model_id: str, history_messages=None, user=None, track_tokens=False):
+def get_bot_response(user_input: str, model_id: str, history_messages=None, user=None, conversation=None, track_tokens=False):
     try:
         chat_history = build_chat_history(history_messages)
         resolved_model_id = resolve_normal_chat_model(user_input, model_id)
         provider_model = MODEL_MAP.get(resolved_model_id, "openai/gpt-5-nano")
         model = init_model(provider_model)
         
+        document_search_tool = build_document_search_tool(
+            conversation,
+            user,
+            conversation_type="normal",
+        )
         tools = [search_tool, document_search_tool]
+        agent_input = build_document_augmented_input(
+            user_input,
+            conversation,
+            user,
+            conversation_type="normal",
+        )
         
         agent = create_openai_tools_agent(model, tools, prompt)
         agent_executor = AgentExecutor(
@@ -396,7 +380,7 @@ def get_bot_response(user_input: str, model_id: str, history_messages=None, user
         # Run the agent (tool calling happens here)
         with get_openai_callback() as callback:
             result = agent_executor.invoke({
-                "input": user_input,
+                "input": agent_input,
                 "chat_history": chat_history.messages,
                 "agent_scratchpad": []
             })

@@ -115,6 +115,7 @@ def comsats_stream(request):
                 thread_id=chat_id,
                 history_messages=previous_context,
                 user=user,
+                conversation=conversation,
                 track_tokens=True,
             )
             for word in response.split(" "):
