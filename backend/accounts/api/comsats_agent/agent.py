@@ -16,11 +16,12 @@ from accounts.api.billing.services import extract_token_usage, get_or_create_bil
 from accounts.api.chat.documents import build_document_augmented_input, build_document_search_tool
 
 from .gmail import build_gmail_oauth_url, is_gmail_connected, send_gmail_email
+from .teachers import build_teacher_augmented_input, build_teacher_info_tool, is_verified_teacher_email
 
 EMAIL_DRAFT_TAG = "[EMAIL_DRAFT]"
 
 llm = ChatOpenAI(
-    model="x-ai/grok-4.1-fast",
+    model="deepseek/deepseek-v4-flash",
     openai_api_key=os.getenv("OPENROUTER_API_KEY"),
     openai_api_base="https://openrouter.ai/api/v1",
     temperature=0.4,
@@ -36,8 +37,18 @@ Today is {datetime.now().strftime('%B %d, %Y')}.
 Rules:
 - Answer concisely, accurately, and helpfully.
 - Stay focused on COMSATS university issues, campus processes, and student support questions.
+- Prefer direct answers. Do not say you do not know or ask the user to confirm unless the verified records/tools truly do not contain enough information.
+- Use teacher_info_search for teacher, faculty, course teacher, department, qualification, areas of interest, office hours, teaching policy, assignment, quiz, resource, FYP, preferred contact, and verified email questions.
+- Never guess teacher emails or contact details. Teacher emails must come from verified teacher records.
+- When verified teacher records are provided in the prompt, answer from them directly instead of saying the record is missing.
+- For course, department, interest, and FYP questions, include all relevant returned teachers, not only one teacher, unless the user asked for a single example.
 - Use document_search when the user asks about an uploaded PDF, document, file, or document summary in this chat.
-- Do not invent faculty email addresses. If the exact official recipient email is not known, ask the user for it.
+- Do not invent faculty email addresses. If the teacher does not have a verified stored email, say no verified email is stored and use the preferred contact method if available.
+- Only draft or send teacher emails to verified teacher emails from teacher_info_search. Do not draft or send to random @cuilahore.edu.pk addresses supplied by the user unless they match a verified teacher record.
+- If the user provides an unverified university email, politely say you can only send to verified teacher records for now.
+- If the user asks to write or draft an email to a teacher, resolve the teacher first and produce the draft immediately when the teacher email is verified and the topic is clear. Do not ask "would you like me to draft it" after the user already asked for a draft.
+- Student name and roll number are optional. Ask for them at most once only when useful and not already provided. If the user does not provide them after that, write the draft without placeholders and without mentioning missing name/roll number.
+- If the user says not to include their name or roll number, do not ask for or include them.
 - Only use the email tool after the user explicitly confirms they want the email sent.
 - Before sending, make sure the final email has a clear recipient, subject, and body.
 - If Gmail is not connected, guide the user to connect it using the link returned by the tool.
@@ -79,6 +90,20 @@ def build_chat_history(history_messages=None):
     return built_messages
 
 
+def build_teacher_lookup_query(query, history_messages=None):
+    context_lines = []
+    for message in (history_messages or [])[-6:]:
+        role = getattr(message, "role", "")
+        text = (getattr(message, "content_text", "") or "").strip()
+        if role in {"user", "assistant"} and text:
+            context_lines.append(f"{role}: {text}")
+
+    if not context_lines:
+        return query
+
+    return "\n".join(context_lines + [f"user: {query}"])
+
+
 def build_email_tool_for_user(user):
     def _send_university_email(recipient_email: str, subject: str, body: str):
         if not user or isinstance(user, AnonymousUser) or not getattr(user, "is_authenticated", False):
@@ -91,15 +116,22 @@ def build_email_tool_for_user(user):
                 f"Open this link to connect it first: {connect_url}"
             )
 
+        recipient_email = recipient_email.strip().lower()
+        if not is_verified_teacher_email(recipient_email):
+            return (
+                "I can only send emails to verified COMSATS teacher records for now. "
+                "Please choose a teacher from the verified teacher list."
+            )
+
         payload = send_gmail_email(
             user=user,
-            recipient_email=recipient_email.strip(),
+            recipient_email=recipient_email,
             subject=subject.strip(),
             body=body.strip(),
         )
         message_id = payload.get("id", "unknown")
         return (
-            f"Email sent successfully from {user.email} to {recipient_email.strip()}. "
+            f"Email sent successfully from {user.email} to {recipient_email}. "
             f"Gmail message id: {message_id}"
         )
 
@@ -107,9 +139,9 @@ def build_email_tool_for_user(user):
         func=_send_university_email,
         name="send_university_email",
         description=(
-            "Send an email from the logged-in student's Gmail account to an official COMSATS recipient. "
+            "Send an email from the logged-in student's Gmail account to a verified COMSATS teacher email. "
             "Use only after the user explicitly confirms they want the email sent and you have the final "
-            "recipient_email, subject, and body."
+            "recipient_email, subject, and body. Do not use this for unverified university emails."
         ),
         args_schema=SendUniversityEmailInput,
     )
@@ -135,6 +167,9 @@ def extract_email_draft(answer_text: str):
     if "@cuilahore.edu.pk" not in recipient_email.lower():
         return None
 
+    if not is_verified_teacher_email(recipient_email):
+        return None
+
     return {
         "recipient_email": recipient_email,
         "subject": subject,
@@ -147,6 +182,7 @@ def get_comsats_response(query: str, thread_id="comsats_agent_chat", history_mes
         chat_history = build_chat_history(history_messages)
         tools = [
             build_email_tool_for_user(user),
+            build_teacher_info_tool(),
             build_document_search_tool(
                 conversation,
                 user,
@@ -154,8 +190,10 @@ def get_comsats_response(query: str, thread_id="comsats_agent_chat", history_mes
                 conversation_type="domain_agent",
             ),
         ]
+        teacher_lookup_query = build_teacher_lookup_query(query, history_messages)
+        agent_input = build_teacher_augmented_input(query, search_query=teacher_lookup_query)
         agent_input = build_document_augmented_input(
-            query,
+            agent_input,
             conversation,
             user,
             agent_id="builtin-comsats",

@@ -26,6 +26,10 @@ OAUTH_SCOPES = [
 OAUTH_STATE_SIGNER = TimestampSigner(salt="comsats-gmail-oauth")
 
 
+class GmailReconnectRequired(RuntimeError):
+    pass
+
+
 def _get_google_social_app():
     social_app = SocialApp.objects.filter(provider="google").first()
     if not social_app:
@@ -107,7 +111,9 @@ def _refresh_access_token(refresh_token):
     )
     payload = response.json()
     if not response.ok:
-        raise RuntimeError(payload.get("error_description") or payload.get("error") or "Google token refresh failed.")
+        error = payload.get("error") or "unknown_error"
+        description = payload.get("error_description") or response.reason or "Google token refresh failed."
+        raise GmailReconnectRequired(f"Google token refresh failed: {error} ({description}). Please reconnect Gmail.")
     return payload
 
 
@@ -160,7 +166,7 @@ def get_valid_gmail_access_token(user):
         return credential.access_token, credential
 
     if not credential.refresh_token:
-        raise RuntimeError("Gmail connection expired. Please reconnect your Gmail account.")
+        raise GmailReconnectRequired("Gmail connection expired. Please reconnect your Gmail account.")
 
     refreshed = _refresh_access_token(credential.refresh_token)
     credential.access_token = refreshed.get("access_token", credential.access_token)
@@ -189,7 +195,7 @@ def send_gmail_email(user, recipient_email, subject, body):
 
     access_token, credential = get_valid_gmail_access_token(user)
     if not access_token or not credential:
-        raise RuntimeError("Gmail is not connected for this user.")
+        raise GmailReconnectRequired("Gmail is not connected for this user.")
 
     email_message = EmailMessage()
     email_message["To"] = recipient_email

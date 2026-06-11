@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 
 from django.conf import settings
@@ -29,10 +30,14 @@ from .agent import EMAIL_DRAFT_TAG, extract_email_draft, get_comsats_response, r
 from .gmail import (
     build_gmail_oauth_url,
     build_gmail_result_redirect,
+    GmailReconnectRequired,
     handle_gmail_oauth_callback,
     is_gmail_connected,
     send_gmail_email,
 )
+from .teachers import is_verified_teacher_email
+
+logger = logging.getLogger(__name__)
 
 
 def authenticate_query_token(request):
@@ -200,6 +205,17 @@ def comsats_send_email(request):
     if not recipient_email or not subject or not body:
         return JsonResponse({"error": "recipient_email, subject, and body are required."}, status=400)
 
+    recipient_email = recipient_email.lower()
+    if not is_verified_teacher_email(recipient_email):
+        return JsonResponse(
+            {
+                "error": (
+                    "I can only send emails to verified COMSATS teacher records for now. "
+                )
+            },
+            status=400,
+        )
+
     if not is_gmail_connected(user):
         connect_url = build_gmail_oauth_url(user)
         return JsonResponse(
@@ -240,7 +256,8 @@ def comsats_send_email(request):
                 "gmail_message_id": gmail_message_id,
             }
         )
-    except Exception as exc:
+    except GmailReconnectRequired as exc:
+        logger.warning("Comsats Gmail reconnect required: %s", exc)
         if draft_message:
             create_email_record(
                 conversation=draft_message.conversation,
@@ -253,7 +270,29 @@ def comsats_send_email(request):
                 status="failed",
                 error_message=str(exc),
             )
-        return JsonResponse({"error": str(exc)}, status=500)
+        return JsonResponse(
+            {
+                "error": str(exc),
+                "requires_gmail_connect": True,
+                "connect_url": build_gmail_oauth_url(user),
+            },
+            status=409,
+        )
+    except Exception as exc:
+        logger.exception("Comsats Gmail send failed")
+        if draft_message:
+            create_email_record(
+                conversation=draft_message.conversation,
+                message=draft_message,
+                user=user,
+                agent=draft_message.conversation.agent,
+                recipient_email=recipient_email,
+                subject=subject,
+                body=body,
+                status="failed",
+                error_message=str(exc),
+            )
+        return JsonResponse({"error": str(exc) or "Failed to send Gmail message."}, status=502)
 
 
 @csrf_exempt

@@ -443,7 +443,13 @@ export default function ChatWindow({
           message_id: messageId,
         }),
       });
-      const data = await response.json();
+      const responseText = await response.text();
+      let data = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = { error: responseText };
+      }
 
       if (!response.ok) {
         if (data?.requires_gmail_connect && data?.connect_url) {

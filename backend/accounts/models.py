@@ -264,6 +264,49 @@ class ChatAsset(models.Model):
         return self.original_name or f"{self.asset_type} {self.id}"
 
 
+class ComsatsTeacher(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    full_name = models.CharField(max_length=255)
+    normalized_name = models.CharField(max_length=255, db_index=True)
+    email = models.EmailField(blank=True, default="", db_index=True)
+    department = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    current_courses = models.TextField(blank=True, default="")
+    highest_qualification = models.CharField(max_length=255, blank=True, default="")
+    field_of_qualification = models.CharField(max_length=255, blank=True, default="")
+    areas_of_interest = models.TextField(blank=True, default="")
+    office_location = models.CharField(max_length=255, blank=True, default="")
+    office_hours_spring_2026 = models.TextField(blank=True, default="")
+    preferred_contact_method = models.TextField(blank=True, default="")
+    expected_response_time = models.TextField(blank=True, default="")
+    teaching_method = models.TextField(blank=True, default="")
+    recorded_lectures_available = models.CharField(max_length=255, blank=True, default="")
+    recommended_resources = models.TextField(blank=True, default="")
+    assignment_submission_platform = models.TextField(blank=True, default="")
+    late_submissions_allowed = models.CharField(max_length=255, blank=True, default="")
+    late_submission_penalty = models.TextField(blank=True, default="")
+    typical_quiz_format = models.TextField(blank=True, default="")
+    makeup_quizzes_allowed = models.CharField(max_length=255, blank=True, default="")
+    fyp_domains_supervised = models.TextField(blank=True, default="")
+    past_fyp_project_titles = models.TextField(blank=True, default="")
+    supervises_industry_projects = models.CharField(max_length=255, blank=True, default="")
+    preferred_fyp_work_type = models.TextField(blank=True, default="")
+    source_batch = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    source_row_hash = models.CharField(max_length=64, blank=True, default="")
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["full_name"]
+        indexes = [
+            models.Index(fields=["normalized_name", "email"], name="teacher_name_email_idx"),
+            models.Index(fields=["department", "is_active"], name="teacher_dept_active_idx"),
+        ]
+
+    def __str__(self):
+        return self.full_name
+
+
 class EmailRecord(models.Model):
     class Status(models.TextChoices):
         DRAFTED = "drafted", "Drafted"
