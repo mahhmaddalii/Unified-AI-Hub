@@ -826,6 +826,7 @@ const renderEmailDraftCard = (emailDraft) => {
   }
 
   const showWelcomeScreen = !hasActiveChat || messages.length === 0;
+  const showPromptCards = !selectedAgent;
 
   const uploadFilesIfAny = async (chatId) => {
     if (fileUploadDisabled) return;
@@ -1425,28 +1426,32 @@ return (
               <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-2">
                 How can I help you today?
               </h2>
-              <p className="text-xs sm:text-sm text-gray-500">
-                Choose a prompt or type your own message to get started
-              </p>
+              {showPromptCards && (
+                <p className="text-xs sm:text-sm text-gray-500">
+                  Choose a prompt or type your own message to get started
+                </p>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 w-full max-w-2xl px-2 sm:px-4">
-              {promptCards.map((card, index) => (
-                <div
-                  key={index}
-                  className="bg-white border border-gray-200 rounded-lg p-2.5 sm:p-3 cursor-pointer hover:border-purple-300 transition-colors text-left"
-                  onClick={() => handlePromptClick(card.prompt)}
-                >
-                  <div className="flex items-start gap-2">
-                    <span className="text-base sm:text-lg flex-shrink-0">{card.icon}</span>
-                    <div className="text-left min-w-0 flex-1">
-                      <h3 className="font-medium text-gray-800 mb-1 text-xs sm:text-sm">{card.title}</h3>
-                      <p className="text-xs text-gray-600 leading-relaxed">{card.prompt}</p>
+            {showPromptCards && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 w-full max-w-2xl px-2 sm:px-4">
+                {promptCards.map((card, index) => (
+                  <div
+                    key={index}
+                    className="bg-white border border-gray-200 rounded-lg p-2.5 sm:p-3 cursor-pointer hover:border-purple-300 transition-colors text-left"
+                    onClick={() => handlePromptClick(card.prompt)}
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className="text-base sm:text-lg flex-shrink-0">{card.icon}</span>
+                      <div className="text-left min-w-0 flex-1">
+                        <h3 className="font-medium text-gray-800 mb-1 text-xs sm:text-sm">{card.title}</h3>
+                        <p className="text-xs text-gray-600 leading-relaxed">{card.prompt}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           // Chat messages
