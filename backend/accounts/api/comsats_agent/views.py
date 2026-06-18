@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse, StreamingHttpResponse
@@ -15,6 +16,7 @@ from accounts.api.access import (
     sse_error_response,
     sse_token_limit_response,
 )
+from accounts.api.billing.services import get_or_create_billing_profile
 from accounts.api.persistence import (
     attach_pending_assets_to_message,
     create_email_record,
@@ -38,6 +40,23 @@ from .gmail import (
 from .teachers import is_verified_teacher_email
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_draft_message(user, message_id):
+    if not message_id:
+        return None
+
+    try:
+        draft_message_id = UUID(str(message_id))
+    except (TypeError, ValueError):
+        logger.info("Ignoring non-UUID Comsats draft message id: %s", message_id)
+        return None
+
+    return Message.objects.filter(
+        id=draft_message_id,
+        conversation__user=user,
+        conversation__status="active",
+    ).select_related("conversation", "conversation__agent").first()
 
 
 def authenticate_query_token(request):
@@ -123,10 +142,20 @@ def comsats_stream(request):
                 conversation=conversation,
                 track_tokens=True,
             )
-            for word in response.split(" "):
-                raw_answer += word + " "
+            raw_answer = response
+            marker_index = response.find(EMAIL_DRAFT_TAG)
+            stream_text = response
+            draft_payload_for_client = ""
+            if marker_index != -1:
+                stream_text = response[:marker_index].rstrip()
+                draft_payload_for_client = response[marker_index:].strip()
+
+            for word in stream_text.split(" "):
                 yield f"data: {word.replace(chr(10), '\\n')} \n\n"
                 time.sleep(0.02)
+
+            if draft_payload_for_client:
+                yield f"data: {draft_payload_for_client.replace(chr(10), '\\n')}\n\n"
 
             marker_index = raw_answer.find(EMAIL_DRAFT_TAG)
             stored_text = raw_answer.strip()
@@ -188,7 +217,7 @@ def comsats_send_email(request):
     user = authenticate_header_token(request)
     if not user:
         return JsonResponse({"error": "Authentication required."}, status=401)
-    billing_profile = get_user_billing_profile(user, sync_remote=True)
+    billing_profile = get_or_create_billing_profile(user)
     if not billing_profile or not billing_profile.is_paid:
         return json_pro_required_response("Upgrade to Pro to use the Comsats agent.")
 
@@ -227,13 +256,7 @@ def comsats_send_email(request):
             status=409,
         )
 
-    draft_message = None
-    if message_id:
-        draft_message = Message.objects.filter(
-            id=message_id,
-            conversation__user=user,
-            conversation__status="active",
-        ).select_related("conversation", "conversation__agent").first()
+    draft_message = resolve_draft_message(user, message_id)
 
     try:
         payload = send_gmail_email(user, recipient_email, subject, body)

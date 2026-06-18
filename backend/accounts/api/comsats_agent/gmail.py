@@ -23,6 +23,10 @@ OAUTH_SCOPES = [
     "profile",
     GMAIL_SCOPE,
 ]
+GOOGLE_CONNECT_TIMEOUT = float(os.getenv("GOOGLE_CONNECT_TIMEOUT_SECONDS", "5"))
+GOOGLE_READ_TIMEOUT = float(os.getenv("GOOGLE_READ_TIMEOUT_SECONDS", "10"))
+GOOGLE_REQUEST_TIMEOUT = (GOOGLE_CONNECT_TIMEOUT, GOOGLE_READ_TIMEOUT)
+GOOGLE_SESSION = requests.Session()
 OAUTH_STATE_SIGNER = TimestampSigner(salt="comsats-gmail-oauth")
 
 
@@ -80,7 +84,7 @@ def resolve_user_from_state(state):
 
 def _exchange_code_for_tokens(code):
     social_app = _get_google_social_app()
-    response = requests.post(
+    response = GOOGLE_SESSION.post(
         GOOGLE_OAUTH_TOKEN_URL,
         data={
             "code": code,
@@ -89,7 +93,7 @@ def _exchange_code_for_tokens(code):
             "redirect_uri": get_gmail_redirect_uri(),
             "grant_type": "authorization_code",
         },
-        timeout=20,
+        timeout=GOOGLE_REQUEST_TIMEOUT,
     )
     payload = response.json()
     if not response.ok:
@@ -99,7 +103,7 @@ def _exchange_code_for_tokens(code):
 
 def _refresh_access_token(refresh_token):
     social_app = _get_google_social_app()
-    response = requests.post(
+    response = GOOGLE_SESSION.post(
         GOOGLE_OAUTH_TOKEN_URL,
         data={
             "client_id": social_app.client_id,
@@ -107,7 +111,7 @@ def _refresh_access_token(refresh_token):
             "refresh_token": refresh_token,
             "grant_type": "refresh_token",
         },
-        timeout=20,
+        timeout=GOOGLE_REQUEST_TIMEOUT,
     )
     payload = response.json()
     if not response.ok:
@@ -118,10 +122,10 @@ def _refresh_access_token(refresh_token):
 
 
 def _fetch_google_email(access_token):
-    response = requests.get(
+    response = GOOGLE_SESSION.get(
         GOOGLE_USERINFO_URL,
         headers={"Authorization": f"Bearer {access_token}"},
-        timeout=20,
+        timeout=GOOGLE_REQUEST_TIMEOUT,
     )
     payload = response.json()
     if not response.ok:
@@ -204,14 +208,14 @@ def send_gmail_email(user, recipient_email, subject, body):
     email_message.set_content(body)
 
     raw_message = base64.urlsafe_b64encode(email_message.as_bytes()).decode("utf-8")
-    response = requests.post(
+    response = GOOGLE_SESSION.post(
         GMAIL_SEND_URL,
         headers={
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         },
         json={"raw": raw_message},
-        timeout=20,
+        timeout=GOOGLE_REQUEST_TIMEOUT,
     )
     payload = response.json()
     if not response.ok:

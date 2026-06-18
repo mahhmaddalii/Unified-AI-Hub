@@ -31,6 +31,45 @@ llm = ChatOpenAI(
 chat_histories = {}
 chat_lock = Lock()
 
+MARKDOWN_FORMATTING_RULES = """
+Markdown formatting rules:
+- Use clean GitHub-flavored Markdown.
+- Put one blank line between headings, paragraphs, and lists.
+- Use `##` headings only when they make the answer clearer. Short direct answers do not need a heading.
+- Use `-` bullets for lists and `1.` numbered lists for steps.
+- Use **bold** for important labels, names, emails, dates, and decisions.
+- Do not use code blocks for normal explanations, teacher details, or email drafts.
+- Never show raw tool output or unformatted JSON to the user.
+
+Email draft rules:
+- When drafting an email, output only the draft in this exact visible structure:
+
+## Email Draft
+
+**To:** recipient@cuilahore.edu.pk
+
+**Subject:** Short subject
+
+**Body:**
+Dear Sir/Madam,
+
+Full email body here.
+
+Regards,
+
+
+- Do not add placeholders like `[Your Name]`, `[Roll Number]`, `Your Name`, `Name`, or `Roll Number` if the user did not provide them.
+- Do not write `Student`, `Name`, or any generic/fake signature after `Regards,` unless the user explicitly asks for that wording.
+- If the user provided their name and/or roll number, include only those provided details in the signature. If they did not provide either, end with `Regards,` and no extra signature line.
+- Write the full email closing yourself as part of the draft. If a polite closing is appropriate, write the complete sentence before `Regards,`, for example: `Thank you for your time and assistance.`
+- Do not rely on frontend/backend code to append closing sentences, signature lines, or send prompts. The visible email draft must be complete by itself.
+- Do not add markdown separators, horizontal rules, divider dashes, or dashed closing lines such as `---`, `***`, `___`, `--`, or `- Name` in email drafts.
+- Do not add any text before or after the draft.
+- Do not ask "Would you like me to send this email now?" or similar after drafting. The UI already shows a Send Email button.
+- If the user asks for a short, moderate, longer, detailed, or more detailed email, apply that only to the email body.
+- Keep the subject short and natural. Never include wording like "short", "moderate", "detailed", "more detailed", "length", or "information request" in the subject just because the user requested a length/detail level.
+"""
+
 SYSTEM_PROMPT = f"""You are a knowledgeable COMSATS campus assistant.
 Today is {datetime.now().strftime('%B %d, %Y')}.
 
@@ -47,17 +86,14 @@ Rules:
 - Only draft or send teacher emails to verified teacher emails from teacher_info_search. Do not draft or send to random @cuilahore.edu.pk addresses supplied by the user unless they match a verified teacher record.
 - If the user provides an unverified university email, politely say you can only send to verified teacher records for now.
 - If the user asks to write or draft an email to a teacher, resolve the teacher first and produce the draft immediately when the teacher email is verified and the topic is clear. Do not ask "would you like me to draft it" after the user already asked for a draft.
-- Student name and roll number are optional. Ask for them at most once only when useful and not already provided. If the user does not provide them after that, write the draft without placeholders and without mentioning missing name/roll number.
+- Student name and roll number are optional and not mandatory every time. Ask for them at most once only when useful and not already provided. If the user does not provide them after that, write the draft without placeholders, without mentioning missing name/roll number, and without adding `Student` as a fake signature.
 - If the user says not to include their name or roll number, do not ask for or include them.
 - Only use the email tool after the user explicitly confirms they want the email sent.
 - Before sending, make sure the final email has a clear recipient, subject, and body.
 - If Gmail is not connected, guide the user to connect it using the link returned by the tool.
 - Only send to official COMSATS addresses ending in @cuilahore.edu.pk.
-- When the user asks for an email draft but has not explicitly confirmed sending, produce the draft in this exact format:
-  To: recipient@cuilahore.edu.pk
-  Subject: Short subject
-  Body:
-  Full email body here
+
+{MARKDOWN_FORMATTING_RULES}
 """
 
 prompt = ChatPromptTemplate.from_messages([
@@ -148,9 +184,87 @@ def build_email_tool_for_user(user):
 
 
 def extract_email_draft(answer_text: str):
+    send_prompt_fragments = {
+        "would",
+        "would you",
+        "would you like",
+        "would you like me",
+        "would you like me to",
+        "would you like me to send",
+        "would you like me to send this",
+        "would you like me to send this email",
+        "would you like me to send this email now",
+        "should",
+        "should i",
+        "should i send",
+        "should i send this",
+        "should i send this email",
+        "should i send this email now",
+        "do",
+        "do you",
+        "do you want",
+        "do you want me",
+        "do you want me to",
+        "do you want me to send",
+        "do you want me to send this",
+        "do you want me to send this email",
+        "do you want me to send this email now",
+    }
+
+    def normalize_prompt_line(value: str) -> str:
+        return " ".join((value or "").strip().lower().rstrip("?.!").split())
+
+    def remove_trailing_send_prompt(value: str) -> str:
+        lines = (value or "").rstrip().splitlines()
+        while lines and normalize_prompt_line(lines[-1]) in send_prompt_fragments:
+            lines.pop()
+        return "\n".join(lines).rstrip()
+
+    def remove_separator_and_after(value: str) -> str:
+        cleaned_lines = []
+        for line in (value or "").splitlines():
+            stripped = line.strip()
+            if stripped in {"---", "***", "___"} or re.fullmatch(r"[-*_]{3,}", stripped):
+                break
+            cleaned_lines.append(line)
+        return "\n".join(cleaned_lines).strip()
+
+    def clean_email_body(body: str) -> str:
+        body = remove_separator_and_after(body)
+        body = re.sub(
+            r"\n*\s*(?:would\s+you\s+like\s+me\s+to\s+send(?:\s+this\s+email(?:\s+now)?)?\??|should\s+i\s+send(?:\s+this\s+email(?:\s+now)?)?\??|do\s+you\s+want\s+me\s+to\s+send(?:\s+this\s+email(?:\s+now)?)?\??)\s*$",
+            "",
+            body,
+            flags=re.IGNORECASE | re.DOTALL,
+        ).strip()
+        body = remove_trailing_send_prompt(body)
+        body = re.sub(
+            r"(?im)(regards,\s*)\n+\s*(?:student|your student)\s*$",
+            r"\1",
+            body,
+        ).strip()
+        body = remove_trailing_send_prompt(body)
+        return body.strip()
+
+    def clean_email_subject(value: str) -> str:
+        subject = re.sub(r"\s+", " ", value or "").strip()
+        subject = re.sub(
+            r"\s*[-–—:]\s*(?:short|brief|concise|moderate|medium|detailed|more detailed|long|longer|expanded|comprehensive)(?:\s+(?:email|version|draft|information|request))*\s*$",
+            "",
+            subject,
+            flags=re.IGNORECASE,
+        ).strip()
+        subject = re.sub(
+            r"\s*[-–—:]\s*(?:current semester\s*)?(?:detailed\s*)?information request\s*$",
+            "",
+            subject,
+            flags=re.IGNORECASE,
+        ).strip()
+        return subject or "Course Fee Inquiry"
+
     normalized = answer_text.replace("**", "").strip()
     match = re.search(
-        r"(?:^|\n)(?:to|recipient)\s*:\s*(?P<recipient>[^\n]+)\n+subject\s*:\s*(?P<subject>[^\n]+)\n+body\s*:\s*(?P<body>.+)$",
+        r"(?:^|\n)\s*(?:to|recipient)\s*:\s*(?P<recipient>[^\n]+)\n+\s*subject\s*:\s*(?P<subject>[^\n]+)\n+\s*body\s*:\s*(?P<body>.+)$",
         normalized,
         re.IGNORECASE | re.DOTALL,
     )
@@ -158,8 +272,8 @@ def extract_email_draft(answer_text: str):
         return None
 
     recipient_email = match.group("recipient").strip()
-    subject = match.group("subject").strip()
-    body = match.group("body").strip()
+    subject = clean_email_subject(match.group("subject"))
+    body = clean_email_body(match.group("body"))
 
     if not recipient_email or not subject or not body:
         return None

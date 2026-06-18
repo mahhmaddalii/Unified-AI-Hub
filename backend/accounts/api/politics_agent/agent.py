@@ -16,7 +16,7 @@ from accounts.api.billing.services import extract_token_usage, get_or_create_bil
 # ── LLM ────────────────────────────────────────────────────────────────────────
 
 llm = ChatOpenAI(
-    model="x-ai/grok-4.1-fast",
+    model="deepseek/deepseek-v4-flash",
     openai_api_key=os.getenv("OPENROUTER_API_KEY"),
     openai_api_base="https://openrouter.ai/api/v1",
     temperature=0.4,

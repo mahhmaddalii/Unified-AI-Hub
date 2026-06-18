@@ -93,6 +93,7 @@ export default function ChatWindow({
   const currentAssistantIdRef = useRef(null);
   const draftManualRef = useRef(false);
   const fileUploadDisabled = selectedAgent?.id === 'builtin-cricket' || selectedAgent?.id === 'builtin-politics';
+  const isComsatsAgent = selectedAgent?.id === 'builtin-comsats';
 
   // ─────────────────────────────────────────────────────────────
   // Built-in domain agents now send chat_id only.
@@ -368,6 +369,90 @@ export default function ChatWindow({
   const aiModels = MODEL_OPTIONS;
   const EMAIL_DRAFT_TAG = "[EMAIL_DRAFT]";
 
+  const stripVisibleEmailDraft = (text) => {
+    if (typeof text !== "string") return text;
+
+    const headingIndex = text.search(/(?:^|\n)\s*#{1,3}\s*Email Draft\b/i);
+    if (headingIndex !== -1) {
+      return text.slice(0, headingIndex).trim();
+    }
+
+    const toMatch = text.match(/(?:^|\n)\s*(?:\*\*)?(?:to|recipient)(?:\*\*)?\s*:/i);
+    if (!toMatch || typeof toMatch.index !== "number") return text;
+    return text.slice(0, toMatch.index).trim();
+  };
+
+  const removeTrailingSendPrompt = (value) => {
+    const cleaned = value.trimEnd();
+    const match = cleaned.match(/(?:^|\n)\s*([^\n]*)$/);
+    if (!match) return cleaned;
+
+    const lastLine = (match[1] || "").trim().toLowerCase().replace(/[?.!]+$/, "");
+    const promptFragments = new Set([
+      "would",
+      "would you",
+      "would you like",
+      "would you like me",
+      "would you like me to",
+      "would you like me to send",
+      "would you like me to send this",
+      "would you like me to send this email",
+      "would you like me to send this email now",
+      "should",
+      "should i",
+      "should i send",
+      "should i send this",
+      "should i send this email",
+      "should i send this email now",
+      "do",
+      "do you",
+      "do you want",
+      "do you want me",
+      "do you want me to",
+      "do you want me to send",
+      "do you want me to send this",
+      "do you want me to send this email",
+      "do you want me to send this email now",
+    ]);
+
+    if (!promptFragments.has(lastLine)) return cleaned;
+    return cleaned.slice(0, match.index).trimEnd();
+  };
+
+  const cleanEmailDraftBody = (body) => {
+    if (typeof body !== "string") return body;
+
+    const cleaned = body
+      .replace(/(?:\n\s*)+(?:-{3,}|\*{3,}|_{3,})(?:\s*\n[\s\S]*)?$/i, "")
+      .replace(
+        /\n*\s*(?:would\s+you\s+like\s+me\s+to\s+send(?:\s+this\s+email(?:\s+now)?)?\??|should\s+i\s+send(?:\s+this\s+email(?:\s+now)?)?\??|do\s+you\s+want\s+me\s+to\s+send(?:\s+this\s+email(?:\s+now)?)?\??)\s*$/is,
+        ""
+      )
+      .replace(/(regards,\s*)\n+\s*(?:student|your student)\s*$/im, "$1")
+      .trim();
+
+    return removeTrailingSendPrompt(cleaned).trim();
+  };
+
+  const cleanEmailDraftSubject = (subject) => {
+    if (typeof subject !== "string") return subject;
+
+    const cleaned = subject
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(
+        /\s*[-–—:]\s*(?:short|brief|concise|moderate|medium|detailed|more detailed|long|longer|expanded|comprehensive)(?:\s+(?:email|version|draft|information|request))*\s*$/i,
+        ""
+      )
+      .replace(
+        /\s*[-–—:]\s*(?:current semester\s*)?(?:detailed\s*)?information request\s*$/i,
+        ""
+      )
+      .trim();
+
+    return cleaned || "Course Fee Inquiry";
+  };
+
   const extractEmailDraft = useCallback((rawText, existingDraft = null) => {
     if (typeof rawText !== "string") {
       return { displayText: rawText, emailDraft: existingDraft };
@@ -376,14 +461,15 @@ export default function ChatWindow({
     const parseVisibleDraft = (text) => {
       const normalized = text.replace(/\*\*/g, "").trim();
       const match = normalized.match(
-        /(?:^|\n)(?:to|recipient)\s*:\s*(?<recipient>[^\n]+)\n+subject\s*:\s*(?<subject>[^\n]+)\n+body\s*:\s*(?<body>.+)$/is
+        /(?:^|\n)\s*(?:to|recipient)\s*:\s*(?<recipient>[^\n]+)\n+\s*subject\s*:\s*(?<subject>[^\n]+)\n+\s*body\s*:\s*(?<body>.+)$/is
       );
       if (!match?.groups) return null;
 
       const recipient_email = (match.groups.recipient || "").trim();
-      const subject = (match.groups.subject || "").trim();
+      const subject = cleanEmailDraftSubject(match.groups.subject || "");
       let body = (match.groups.body || "").trim();
 
+      body = cleanEmailDraftBody(body);
       body = body.replace(/\n{1,2}does this .*$/is, "").trim();
       body = body.replace(/\n{1,2}reply\s+["“”']?(yes|send).*$/is, "").trim();
 
@@ -395,25 +481,39 @@ export default function ChatWindow({
 
     const markerIndex = rawText.indexOf(EMAIL_DRAFT_TAG);
     if (markerIndex === -1) {
-      return { displayText: rawText, emailDraft: parseVisibleDraft(rawText) || existingDraft };
+      const emailDraft = parseVisibleDraft(rawText) || existingDraft;
+      const displayText = emailDraft ? stripVisibleEmailDraft(rawText) : rawText;
+      return { displayText, emailDraft };
     }
 
     const displayText = rawText.slice(0, markerIndex).trimEnd();
+    const visibleDraft = parseVisibleDraft(displayText);
     const payloadText = rawText.slice(markerIndex + EMAIL_DRAFT_TAG.length).trim();
 
-    let emailDraft = existingDraft;
+    let emailDraft = visibleDraft || existingDraft;
     if (payloadText) {
       try {
         const parsed = JSON.parse(payloadText);
         if (parsed?.recipient_email && parsed?.subject && parsed?.body) {
-          emailDraft = parsed;
+          const payloadDraft = {
+            ...parsed,
+            subject: cleanEmailDraftSubject(parsed.subject),
+            body: cleanEmailDraftBody(parsed.body),
+          };
+          emailDraft = visibleDraft
+            ? {
+                ...payloadDraft,
+                subject: visibleDraft.subject || payloadDraft.subject,
+                body: visibleDraft.body || payloadDraft.body,
+              }
+            : payloadDraft;
         }
       } catch {
         // Ignore incomplete JSON until the stream finishes.
       }
     }
 
-    return { displayText, emailDraft: emailDraft || parseVisibleDraft(displayText) };
+    return { displayText, emailDraft };
   }, []);
 
   const dismissPendingDrafts = useCallback(() => {
@@ -436,12 +536,15 @@ export default function ChatWindow({
     setStatusMsg("");
 
     try {
+      const isUuidMessageId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(messageId || "");
+      const requestBody = {
+        ...emailDraft,
+        ...(isUuidMessageId ? { message_id: messageId } : {}),
+      };
+
       const response = await fetchWithAuth(`${API_URL}/api/comsats_agent/send-email/`, {
         method: "POST",
-        body: JSON.stringify({
-          ...emailDraft,
-          message_id: messageId,
-        }),
+        body: JSON.stringify(requestBody),
       });
       const responseText = await response.text();
       let data = {};
@@ -474,7 +577,7 @@ export default function ChatWindow({
     } catch (error) {
       console.error("Failed to send drafted email:", error);
       const message = error.message || "Unable to send email right now.";
-      setStatusMsg(message);
+      setStatusMsg("");
       toast.error(message);
     } finally {
       setIsSendingDraftEmail(false);
@@ -589,24 +692,101 @@ export default function ChatWindow({
     tr: ({ children }) => <tr className="hover:bg-gray-50 transition-colors duration-150">{children}</tr>,
     th: ({ children }) => <th scope="col" className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider bg-gray-50">{children}</th>,
     td: ({ children }) => <td className="px-6 py-4 text-sm text-gray-800 align-top whitespace-normal break-words">{children}</td>,
-    a: ({ href, children }) => (
-      <a href={href} target="_blank" rel="noopener noreferrer" className="text-purple-700 hover:text-purple-900 underline decoration-purple-300 hover:decoration-purple-600 underline-offset-2 transition-all duration-200 inline-flex items-center gap-1 group">
-        {children}
-        <svg className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-      </a>
-    ),
+    a: ({ href, children }) => {
+      const label = React.Children.toArray(children).join("").trim();
+      const normalizedHref = (href || "").toLowerCase();
+      const isEmailLink = normalizedHref.startsWith("mailto:") || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(label);
+
+      if (isComsatsAgent && isEmailLink) {
+        return <span className="font-semibold text-gray-900 break-all">{children}</span>;
+      }
+
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" className="text-purple-700 hover:text-purple-900 underline decoration-purple-300 hover:decoration-purple-600 underline-offset-2 transition-all duration-200 inline-flex items-center gap-1 group">
+          {children}
+          <svg className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+        </a>
+      );
+    },
     strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
     em: ({ children }) => <em className="italic text-gray-700">{children}</em>,
   };
 
-  const renderMessageContent = useCallback((content) => {
+  const getEmailDraftDisplayText = (content, emailDraft) => {
+    if (!isComsatsAgent || !emailDraft || typeof content !== "string") return content;
+    return stripVisibleEmailDraft(content);
+  };
+
+const renderEmailDraftCard = (emailDraft) => {
+  if (!emailDraft) return null;
+
+  return (
+    <div className="mt-4 rounded-2xl border border-gray-200 bg-white shadow-md overflow-hidden">
+
+      {/* Top accent bar */}
+      <div className="h-1 bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500" />
+
+      {/* Header */}
+      <div className="px-4 pt-3 pb-3 flex items-center justify-between border-b border-gray-100 bg-white">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-purple-50 border border-purple-100">
+            <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <span className="text-sm font-semibold text-gray-900 tracking-tight">Email Draft</span>
+        </div>
+
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1">
+          <svg className="w-3 h-3 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd"
+              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+              clipRule="evenodd" />
+          </svg>
+          <span className="text-[11px] font-semibold text-amber-700">Review before sending</span>
+        </span>
+      </div>
+
+      {/* To / Subject fields */}
+      <div className="px-5 divide-y divide-gray-100">
+        <div className="flex items-baseline gap-4 py-2.5">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest w-14 flex-shrink-0 pt-0.5">
+            To
+          </span>
+          <span className="text-sm text-gray-800 font-medium break-all leading-6">
+            {emailDraft.recipient_email}
+          </span>
+        </div>
+        <div className="flex items-baseline gap-4 py-2.5">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest w-14 flex-shrink-0 pt-0.5">
+            Subject
+          </span>
+          <span className="text-sm text-gray-900 font-semibold leading-6">
+            {emailDraft.subject}
+          </span>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="mx-4 mb-4 mt-3 rounded-xl bg-gray-50 border border-gray-100 px-4 py-3.5">
+        <p className="text-sm text-gray-700 leading-7 whitespace-pre-wrap">
+          {emailDraft.body}
+        </p>
+      </div>
+
+    </div>
+  );
+};
+
+  const renderMessageContent = (content) => {
     if (!content) return null;
     return (
       <div className="prose prose-sm sm:prose-base prose-headings:text-gray-900 prose-a:no-underline max-w-none break-words leading-7">
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={MarkdownComponents}>{content}</ReactMarkdown>
       </div>
     );
-  }, []);
+  };
 
   useEffect(() => {
     if (!hasActiveChat || messages.length === 0) return;
@@ -1055,8 +1235,15 @@ export default function ChatWindow({
           state.lastUpdateTime = now;
           state.lastNotifiedTextLength = state.assistantMessage.text.length;
           onNewMessage?.({ ...state.assistantMessage, chatId: targetChatId });
-        } else if (now - state.lastUpdateTime > 80 || state.buffer.length > 50) {
-          if (state.assistantMessage) {
+        } else {
+          const isEmailDraftStream = isComsatsAgent && (
+            state.assistantMessage?.emailDraft ||
+            state.assistantRawText?.includes("Email Draft") ||
+            state.buffer.includes("Email Draft") ||
+            state.buffer.includes(EMAIL_DRAFT_TAG)
+          );
+          const shouldFlushBuffer = isEmailDraftStream || now - state.lastUpdateTime > 80 || state.buffer.length > 50;
+          if (shouldFlushBuffer && state.assistantMessage) {
             state.assistantRawText += state.buffer;
             const parsed = extractEmailDraft(state.assistantRawText, state.assistantMessage.emailDraft);
             state.assistantMessage.text = parsed.displayText;
@@ -1276,7 +1463,18 @@ return (
                             : "bg-white text-gray-800"
                         }`}
                       >
-                        {m.role === "assistant" ? renderMessageContent(m.text) : <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>}
+                        {m.role === "assistant" ? (
+                          <>
+                            {renderMessageContent(
+                              isComsatsAgent && m.emailDraft
+                                ? getEmailDraftDisplayText(m.text, m.emailDraft)
+                                : m.text
+                            )}
+                            {isComsatsAgent && m.emailDraft && renderEmailDraftCard(m.emailDraft)}
+                          </>
+                        ) : (
+                          <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                        )}
                         {m.image && (
                           <div className="mt-3 relative group">
                             <img src={m.image} alt="Generated Image" className="rounded-lg max-w-full border border-gray-200 shadow-sm" />
@@ -1319,7 +1517,7 @@ return (
                                   : "bg-purple-600 text-white hover:bg-purple-700"
                               }`}
                             >
-                              <span>Send Email</span>
+                              <span>{isSendingDraftEmail ? "Sending..." : "Send Email"}</span>
                             </button>
                             <span className="text-xs text-gray-500">
                               {isSendingDraftEmail ? "Sending email..." : "Send this drafted email immediately."}
@@ -1402,8 +1600,19 @@ return (
       {/* Status message */}
       {statusMsg && (
         <div className="px-3 sm:px-4 mb-2">
-          <div className="max-w-4xl mx-auto text-xs text-red-600 bg-red-50 rounded-lg py-1.5 px-2.5 border border-red-200">
-            {statusMsg}
+          <div className="max-w-2xl mx-auto flex items-start gap-2 text-xs text-red-700 bg-red-50 rounded-xl py-2 px-3 border border-red-200 shadow-sm">
+            <span className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500" />
+            <span className="max-h-16 overflow-y-auto break-words leading-5">
+              {statusMsg}
+            </span>
+            <button
+              type="button"
+              onClick={() => setStatusMsg("")}
+              className="ml-auto flex-shrink-0 rounded-md px-1.5 text-red-500 hover:bg-red-100 hover:text-red-700"
+              aria-label="Dismiss status message"
+            >
+              ×
+            </button>
           </div>
         </div>
       )}
