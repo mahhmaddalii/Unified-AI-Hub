@@ -179,6 +179,13 @@ def build_teacher_row_hash(mapped):
     return hashlib.sha256(encoded).hexdigest()
 
 
+def get_teacher_field_values(teacher):
+    return {
+        field: normalize_text(getattr(teacher, field, ""))
+        for field in TEACHER_MODEL_FIELDS
+    }
+
+
 def import_teachers_from_csv(csv_path=None, batch="FA25SE56"):
     import csv
 
@@ -206,7 +213,6 @@ def import_teachers_from_csv(csv_path=None, batch="FA25SE56"):
                 stats["errors"].append(f"Row {row_number}: missing Full Name")
                 continue
 
-            row_hash = build_teacher_row_hash(mapped)
             lookup = {"normalized_name": mapped["normalized_name"]}
             if mapped["email"]:
                 lookup["email"] = mapped["email"]
@@ -217,18 +223,27 @@ def import_teachers_from_csv(csv_path=None, batch="FA25SE56"):
                 created = True
             else:
                 created = False
+            old_values = get_teacher_field_values(teacher)
             old_row_hash = teacher.source_row_hash
             old_source_batch = teacher.source_batch
             old_is_active = teacher.is_active
 
             for field in TEACHER_MODEL_FIELDS:
-                setattr(teacher, field, mapped.get(field, ""))
+                value = mapped.get(field, "")
+                if created or value:
+                    setattr(teacher, field, value)
             teacher.normalized_name = mapped["normalized_name"]
             teacher.source_batch = batch
-            teacher.source_row_hash = row_hash
+            teacher.source_row_hash = build_teacher_row_hash(get_teacher_field_values(teacher))
             teacher.is_active = True
 
-            if not created and old_row_hash == row_hash and old_source_batch == batch and old_is_active:
+            if (
+                not created
+                and old_values == get_teacher_field_values(teacher)
+                and old_row_hash == teacher.source_row_hash
+                and old_source_batch == batch
+                and old_is_active
+            ):
                 stats["unchanged"] += 1
                 continue
 
